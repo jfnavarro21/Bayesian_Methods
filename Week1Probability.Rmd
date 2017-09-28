@@ -1,0 +1,220 @@
+---
+title: "BAWeek1Workshop1"
+author: "John Navarro"
+date: "September 27, 2017"
+output: pdf_document
+---
+# 1. Joint distribution:3-dimensional Case
+
+## 1.1 Creating 3-way array
+
+Create a template for 3 dimensional distribution table
+
+```{r}
+# create vectors of variable names
+u<-c("u1","u2")
+v<-c("v1","v2","v3")
+w<-c("w1","w2","w3")
+# paste u0 to each string combination of v's and w's: vector of strings
+matr.u0<-paste("u0",outer(v,w,paste,sep=","),sep=",")
+# reshape into matrix
+dim(matr.u0)<-c(3,3)
+# paste u1 to each string combination of v's and w's: vector of strings
+matr.u1<-paste("u1",outer(v,w,paste,sep=","),sep=",")
+dim(matr.u1)<-c(3,3)
+# reshape into matrix
+matr.u0
+```
+
+```{r}
+matr.u1
+```
+
+```{r}
+# read in data
+dataPath <- "C:/Users/JohntheGreat/Documents/MSCA/BayesianMethods/Week1_Probability"
+data3way<-read.csv(file=paste(dataPath,"3WayData.csv",sep="/"))
+dim(data3way) # 100 x 3
+head(data3way)
+```
+
+```{r}
+# use table to aggregate # of times each combination appears, when u=0
+mat.u0<-table(subset(data3way,u==0)[,1],subset(data3way,u==0)[,2])
+# use table to aggregate # of times each combination appears, when u=1
+mat.u1<-table(subset(data3way,u==1)[,1],subset(data3way,u==1)[,2])
+# return both tables
+mat.u0
+mat.u1
+```
+
+```{r}
+idx.v1<-data3way$v==1
+idx.w1<-data3way$w==1
+idx.u1<-data3way$u==1
+sum(idx.v1*idx.w1*idx.u1) #element (1,1) of mat.u1
+```
+
+```{r}
+idx.v2<-data3way$v==2
+sum(idx.v2*idx.w1*idx.u1) #element (1,2) of mat.u1
+```
+
+```{r}
+idx.w2<-data3way$w==2
+sum(idx.v1*idx.w2*idx.u1) #element (2,1) of mat.u1
+```
+
+```{r}
+# assign column and row names
+colnames(mat.u1)<-colnames(mat.u0)<-c("v1","v2","v3")
+rownames(mat.u1)<-rownames(mat.u0)<-c("w1","w2","w3")
+# create the array of NAs
+data3way.array<-array(rep(NA,18),dim=c(3,3,2),dimnames=list(paste("w",1:3,sep=""),
+                                                            paste("v",1:3,sep=""),
+                                                            paste("u",0:1,sep="")))
+# populate the NA array with totals from mat.u0 and mat.u1
+data3way.array[,,1]<-mat.u0
+data3way.array[,,2]<-mat.u1
+# print the array
+data3way.array
+```
+Create 3-dimensional joint distribution.
+```{r}
+# Sum all the occurances, should equal 100 observations
+N<-sum(data3way.array)
+# Create an array of probabilities
+(data3way.array.p<-data3way.array/N)
+```
+
+## 1.2 Marginal Distributions
+
+Create marginal distribution for u as vector uMarginal
+```{r}
+# marginal distribution, sum probabilities accross arrays
+(uMarginal <- apply(data3way.array.p,3,sum))
+```
+Create marginal distribution for v as vector vMarginal.
+```{r}
+# sum probabilities across columns 
+(vMarginal <- apply(data3way.array.p, 2, sum))
+```
+Create marginal distribution for w as vector wMarginal.
+```{r}
+# sum probabilities across rows
+(wMarginal <- apply(data3way.array.p, 1, sum))
+```
+
+## 1.3 Conditional Distributions
+
+Create conditional distribution p(w,v|u=1)as matrix cond.v.w.given.u1.
+```{r}
+# conditional disstribution = joint distribution/marginal distribution
+# Joint dist of w and v , given u=1. divided by marginal dist of u1
+cond.v.w.given.u1 <- data3way.array.p[,,"u1"]/uMarginal["u1"]
+cond.v.w.given.u1
+# should sum to 1
+sum(cond.v.w.given.u1)
+```
+Create conditional distribution p(v|u=1) as vector cond.v.given.u1
+
+```{r}
+# cond distr of v's given u=1, divided by marginal dist of u=1
+cond.v.given.u1 <- apply(data3way.array.p[,,"u1"], 2, sum)/uMarginal["u1"]
+cond.v.given.u1
+# should sum to 1
+sum(cond.v.given.u1)
+```
+
+Create conditional distribution p(w|v=2,u=1) as vector cond.w.given.u1.v2.
+```{r}
+# cond distr of w given v=2 and u=1, divided by marginal distr of u=1
+cond.w.given.u1.v2 <- data3way.array.p[,"v2","u1"]/cond.v.given.u1["v2"]/uMarginal["u1"]
+cond.w.given.u1.v2
+# should sum to 1
+sum(cond.w.given.u1.v2)
+```
+Compare the vectors p(w|v2,u1)p(v2|u1)p(u1) and p(w,v,u)[,v2,u1]
+```{r}
+rbind(uMarginal["u1"]*cond.v.given.u1["v2"]*cond.w.given.u1.v2,data3way.array.p[,"v2","u1"])
+```
+
+In general, p(w,v,u)=p(w|v,u)p(v|u)p(u)
+
+#2 Simulation Using Conditional Distributions
+
+Let the marginal distribution for random variable u be Bernoulli with p(u=0)=0.55, p(u=1)=0.45
+Let conditional distributions for random variables (v|u=0) and (v|u=1), taking values 1,2,3 be
+```{r}
+# conditional distribution of v given u=0
+(pCond.v.given.u0<-c(.7,.2,.1))
+# conditional distribution of v given u=1
+(pCond.v.given.u1<-c(.1,.2,.7))
+```
+Let random variable (w|v,u) take values 1,2,3 with probabilities p(w|v,u), given by the following:
+```{r}
+p.given.u0.v1<-c(.3,.3,.4)
+p.given.u0.v2<-c(.5,.3,.2)
+p.given.u0.v3<-c(.6,.2,.2)
+p.given.u1.v1<-c(.2,.3,.5)
+p.given.u1.v2<-c(.2,.2,.6)
+p.given.u1.v3<-c(.1,.7,.2)
+```
+Simulate joint sample (w,v,u) of lenth n=500.
+Use set.seed(11) Start with simulation of u.
+For each simulated value u generate v from the corresponding conditional distribution p(v|u)).
+Finally, for each pair v,u simulate w from p(w|v,u).
+```{r}
+set.seed(11)
+sim.u <- rbinom(500, size=1, p=.45)
+sim.v<-sapply(sim.u,function(z) sample(1:3,1,replace=T,
+                                       prob=ifelse(rep(z==1,3),pCond.v.given.u1,pCond.v.given.u0)))
+sim.w<-apply(cbind(sim.u,sim.v),1,
+              function(z) sample(1:3,1,replace=T,prob=switch(3*z[1]+z[2],p.given.u0.v1,p.given.u0.v2,
+                                                             p.given.u0.v3,p.given.u1.v1,p.given.u1.v2,
+                                                             p.given.u1.v3)))
+```
+
+# 3 Conditional Expected Values
+
+Calculate unconditional expected value E[v]
+Random variable v can take values 1,2,3 with corresponding probabilities
+```{r}
+vMarginal
+```
+Then the unconditional mean value is
+```{r}
+c(1,2,3)%*%vMarginal
+```
+Calculate conditional expected Value E[v|u]
+
+First, find conditional mean values E[v|u=u0]=E[v|u0] and E[v|u=u1]=E[v|u1].
+
+The random variable (v|u0)takes values 1,2,3with corresponding probabilities p(v=1|u0),p(v=2|u0),p(v=3|u0), given by the vector
+```{r}
+(cond.v.given.u0<-apply(data3way.array.p[,,"u0"],2,sum)/uMarginal["u0"])
+```
+Taking conditional expected value with respect to this distribution E[v|u0]E[v|u0] is:
+```{r}
+(exp.v.given.u0<-c(1,2,3)%*%cond.v.given.u0)
+```
+
+
+The random variable (v|u1) takes the same values 1,2,3, but with different probabilities p(v|u1):
+```{r}
+cond.v.given.u1
+```
+Thus conditional expected value E[v|u1] is
+```{r}
+(exp.v.given.u1<-c(1,2,3)%*%cond.v.given.u1)
+```
+
+Note that the conditional expected value E[v|u] takes two different values: E[v|u0] and E[v|u1] with probabilities p(v|u0) and p(v|u1), correspondingly.
+
+This means that E[v|u] is a random variable and its (unconditional) expected value is
+E[v|u]=E[v|u0]p(u=u0)+E[v|u1]p(u=u1).
+Calculate this unconditional expected value:
+```{r}
+(uncond.exp.v.given.u<-exp.v.given.u0*uMarginal["u0"]+exp.v.given.u1*uMarginal["u1"])
+
+```
