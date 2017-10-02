@@ -1,0 +1,142 @@
+---
+title: "Week 1 Assignment"
+author: "John Navarro"
+date: "September 28, 2017"
+output: pdf_document
+---
+
+# Study on Smokers
+
+This project helps understanding conditional distributions.
+The following data set is in library(faraway).
+In it participating women are categorized into groups of smokers or not, 7 age groups and groups of dead or alive after 20 years of study.
+```{r}
+# install packages and download dataset
+library(faraway)
+data(femsmoke)
+dim(femsmoke)  #28 x 4
+# print head of the data set
+(femsmoke)
+```
+Create joint distribution of 3 counts variables:
+
+v - "smoker yes"=1 or "smoker no"=0
+u - "dead yes"=1 or "dead no"=0
+w - age category
+w=1: 18-24
+w=2: 25-34
+w=3: 35-44
+w=4: 45-54
+w=5: 55-64
+w=6: 65-74
+w=7: 75+
+```{r}
+# subset the data by dead category, extract the group counts
+mat.dead.yes <- subset(femsmoke, dead == "yes")[,1]
+mat.dead.no <- subset(femsmoke, dead == "no")[,1]
+dim(mat.dead.yes) <- dim(mat.dead.no) <- c(2,7)
+# combine the goup counts in to an array
+femsmoke.joint <- array(rep(NA,28), dim = c(2,7,2))
+femsmoke.joint[,,1] <- mat.dead.yes
+femsmoke.joint[,,2] <- mat.dead.no
+# name the variables of the array
+dimnames(femsmoke.joint) <- list(c("smoke.yes","smoke.no"),c("age.1", "age.2" ,"age.3", "age.4", "age.5", "age.6", "age.7"), c("dead.yes","dead.no"))
+# print the array of the group counts
+femsmoke.joint
+# Calculate the number of observations
+N <- sum(femsmoke.joint)
+# create the array of probabilities
+femsmoke.joint.p <- femsmoke.joint/N
+femsmoke.joint.p
+# check that prob sum to 1
+sum(femsmoke.joint.p)
+```
+Create marginal distribution for u (dead)
+```{r}
+(uMarginal.dead <- apply(femsmoke.joint.p,3,sum))
+# check sums to 1
+sum(uMarginal.dead)
+```
+Create marginal distribution for v(smoke)
+```{r}
+(vMarginal.smoke <- apply(femsmoke.joint.p,1,sum))
+# check that sums to 1
+sum(vMarginal.smoke)
+```
+Create marginal distribution for w (age)
+```{r}
+(wMarginal.age <- apply(femsmoke.joint.p,2,sum))
+# chekc that sums to 1
+sum(wMarginal.age)
+```
+Create conditional distribution p(w,v|u="alive")=p(smoke,age|alive)
+```{r}
+(cond.v.w.given.uAlive <- femsmoke.joint.p[,,"dead.no"]/uMarginal.dead["dead.no"])
+# check that sums to 1
+sum(cond.v.w.given.uAlive)
+```
+Create conditional distribution p(v|u="alive")=p(smoke|alive)
+```{r}
+(cond.v.given.uAlive <- apply(femsmoke.joint.p[,,"dead.no"],1,sum)/uMarginal.dead["dead.no"])
+# check that sums to 1
+sum(cond.v.given.uAlive)
+```
+Create conditional distribution p(w|u="alive",v="smoker")=p(age|alive,smoke)
+```{r}
+(cond.w.given.uAlive.vSmoke <- femsmoke.joint.p["smoke.yes",,"dead.no"]/cond.v.given.uAlive["smoke.yes"]/uMarginal.dead["dead.no"])
+# check that sums to 1  
+sum(cond.w.given.uAlive.vSmoke)  
+```
+Compare the vectors p(w|v2,u1)p(v2|u1)p(u1) and p(w,v,u)[,v2,u1]
+```{r}
+rbind(uMarginal.dead["dead.no"]*cond.v.given.uAlive["smoke.yes"]*cond.w.given.uAlive.vSmoke,
+      femsmoke.joint.p["smoke.yes",,"dead.no"])
+```
+
+
+Let the marginal distribution for age group be p(w)p(w) estimated marginal distribution from the sample:
+```{r}
+wMarginal.age
+```
+
+Given simulated age group, simulate variable v using conditional distribution p(v|w),i.e. using probabilities p(smoke.yes|age), p(smoke.no|age).
+
+Given simulated variables for age and for smoke, simulate mortality variable using distribution p(dead|v,w), p(alive|v,w).
+
+Using the described procedure simulate outcomes for 100 participants.
+Use seed set.seed(284) for comparison.
+
+```{r}
+# simulate number of observations in age groups 
+set.seed(284)
+sim.age <- sample(1:7,100, replace=T,prob=wMarginal.age)
+# given simulated age group, simulate smoke variable
+# calculate joint prob of smoke and age
+joint.smoke.age <- apply(femsmoke.joint.p,c(1,2),sum)
+# calculate the marginal matrix
+marg <- rbind(colSums(joint.smoke.age), colSums(joint.smoke.age))
+# calculate the conditional prob of smoke given age
+(cond.smoke.given.age <- joint.smoke.age/marg)
+# simulate the smoke variable given ages
+#set.seed(284)
+sim.smoke <- sapply(sim.age, function(z) sample(1:2,1, replace=T,
+                                                prob=cond.smoke.given.age[,z]))
+temp.vars <- cbind(sim.smoke,sim.age)
+# Simulate mortality given age and smoke
+#set.seed(284)
+sim.dead <-apply(temp.vars,1,function(z) sample(1:2,1,replace=T, prob=femsmoke.joint.p[z[1],z[2],]))
+# combine the data as simulatedData
+simulatedData <- cbind(ages=sim.age, smokers=sim.smoke, dead = sim.dead-1)
+```
+
+
+
+```{r}
+# return the head of the simulated data
+head(simulatedData,25)
+```
+
+```{r}
+
+```
+
