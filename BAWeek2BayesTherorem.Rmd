@@ -1,0 +1,880 @@
+---
+title: "Workshop Week 2"
+author: "John Navarro"
+date: "October 4, 2017"
+output: pdf_document
+---
+
+##Questions line:81,120, 195, 658,682,731 
+
+
+# Example Mammography Screening Controversy
+##3.1 Problem
+
+According to CDC, probability of breast cancer among women of age 50-60 years old is 2.28%.
+Screening using mammography has sensitivity (i.e. probability of detecting the disease correctly) 75%-94%. Specificity of the test (i.e. probability of correct "no disease" conclusion) is 83%-98%. Assume the most optimistic parameters of the test (94% and 98%, correspondingly for sensitivity and specificity) What is the probability that randomly selected woman with positive test result has the disease?
+```{r}
+## Use Bayes theorem to calculate probability of a true positive test
+
+# Prior, having the disease in general population
+p.theta1 <- 0.0228
+# Sensitivity - probability of detecting the disease correctlly
+# test positive given disease positive
+p.tau1.theta1 <- 0.94
+# Specificity - probability of no disease result being correct
+# test negative given disease negative
+p.tau0.theta0 <- 0.98
+# Complimentary probabilities
+p.theta0 <- 1-p.theta1
+p.tau1.theta0 <- 1-p.tau0.theta0
+# Bayes
+(p.theta1.tau1 <- p.tau1.theta1*p.theta1/(p.tau1.theta1*p.theta1+p.tau1.theta0*p.theta0))
+
+```
+
+Assume that randomly selected woman tested positive and then retested with negative test result.
+After both tests what is the probability of disease?
+```{r}
+# Use bayes theorem after resetting the prior probability
+
+# set the prior to the new probability of having the disease
+pDisease = p.theta1.tau1
+# Bayes rule for second, negative test
+(p.theta1.tau0 <- ((1-p.tau1.theta1)*pDisease)/(((1-p.tau1.theta1)*pDisease)+((1-p.tau1.theta0)*(1-pDisease))))
+```
+
+## 3.2 Comparison with FNP Statistical Approach
+
+Example from Linear and Non-Linear Models, Lecture 4
+
+```{r}
+(library(faraway))
+data(babyfood)
+babyfood
+```
+Selectrows 1 and 3: boys bottle fed or breast fed
+```{r}
+# select rows of boys, remove gender column
+(data <- babyfood[c(1,3),c(1,2,4)])
+```
+
+## 3.2.1 FNP-Approach
+
+The simplest way of analysis, was to use the prop test.
+It means
+Creating 2 proportions:
+  1. 77 diseases out of 458 for bottle fedbaby boys
+  2. 47 diseases out of 494 for breast fed baby boys
+Comparing proportions and testing H0:p1=p2
+```{r}
+(prop.test(as.matrix(data[,1:2])))
+```
+We find a significant p value and can reject the null hypothesis that the 2 are equal
+Then we use logistic regression to find out how much the odds of having the disease change between bottle fed and breast fed babies
+```{r}
+# combine disease and nondisease as the response, food is the explanatory variable
+mdl <- glm(cbind(disease, nondisease)~ food, family=binomial, data)
+# summary of logistic model
+summary(mdl)
+```
+Take exponents to express the change in odds ratio, rather thna log of it
+
+```{r}
+exp(mdl$coefficients)# take exponent, you can see how a chnage in the X variable, affects the ods ratio
+
+exp(confint(mdl))
+```
+
+### 3.2.2 B-Approach
+#### 3.2.2.1 Not a true B approach
+
+First, address the same question not exactly within Bayesian approach but with the help of Bayes theorem.
+Create joint distribution of two binary variables: ("disease","nondisease") and("bottle,"breast)
+```{r}
+joint.dist <- data
+joint.dist[1:2,1:2] <- joint.dist[1:2,1:2]/sum(joint.dist[1:2,1:2])
+joint.dist
+# check that all the probs sum to 1
+sum(joint.dist[,1:2])
+```
+Find marginal probabliites for the disease and the treatment
+```{r}
+# marginal probability for breast, sum the joint probabilities
+(p.breast <- sum(joint.dist[2,-3]))
+#marginal probability of disease, sum the joint probabilities
+(p.disease <- sum(joint.dist[,1]))
+```
+Find conditional probability of breastfeeding, given that baby got the disease
+
+```{r}
+# conditional prob, divide joint (breast and disease) by marginal of the given (disease)
+(p.breast.disease <- joint.dist[2,1]/p.disease)
+```
+Finally use bayes therom
+```{r}
+(p.disease.breast <- p.breast.disease*p.disease/p.breast)
+```
+Could we calculate the same probability directly, not using Bayes theorem?
+```{r}
+(p.disease.breast <- joint.dist[2,1]/p.breast)
+```
+
+*Why would one prefure using Bayes theoremrather than calculating the probablitity directly?*
+No opinion
+*This is not Bayesian approach. Why?*
+No, In bayesian, the parameter is random variable, we observe from it, then infer on prior belief. this problem has nothing to do w parameter or a distribution. just calculation on data.
+
+#### 3.2.2.2 True Bayesian approach but for a different problem
+
+True Bayesian approach to the baby food problem would be logistic regression with the food type as a predictor and prior distribution for the parameters. We will look at this model after.
+
+Now use the true Bayesian approach to estimation of probability of binomimal distribution.
+The data collected from observation fo 952 baby boys of which 124 got the diesase: this is a sequence of 124 ones and 828 zeros.
+```{r}
+(Data <- c(rep(0,828),rep(1,124)))
+```
+Probability of success is p
+In the FNP-approach its estimate is p^
+In the B-approach it is a random variable with prior distribution density fp(x)
+Then the B-approach means using Bayes theorem to find posterior fp(p|Data).
+We will practice this approach in the following section.
+
+# 4 Example of Using Bayes Theorem in Statistics
+
+The following example uses script BernGrid.R from the book by John K.. Kruschke
+
+Source the scripts DBDA2E-utilities.R and BernGrid.R available on the book site.
+```{r}
+#graphics.off()
+dataPath="C:/Users/JohntheGreat/Documents/MSCA/BayesianMethods/Week2_BayesTheorem"
+suppressWarnings(source(paste(dataPath,"DBDA2E-utilities.R",sep="/")))
+source(paste(dataPath,"BernGrid.R",sep="/"))
+```
+
+## 4.1 Binommial model, triangular prior with 3 values
+
+Set the parameters for Graph 5.1 on page 111. Vector ?? is probability of success in Bernoulli trials, it can take 5 values from 0 to 1.
+Vector pTheta is the prior distribution of triangular shape.
+Variable Data is the observed number of successes ??. Start with one flip in which ??=1.
+Likelihood function for Bernoulli trials is p(??|??)=????(1?????)(1?????). Posterior distribution is obtained from Bayes theorem.
+Numerator in the expression is the product of pTheta and likelihood.
+The simplest way of finding the denominator is to sum the numerator vector. This will make posterior probabilities add up to 1.
+Calculate the values of likelihood and posterior distribution post yourself, then run BenGrid() and compare the results.
+
+Set ??, the prior and the data.
+```{r}
+(Theta = seq(0,1,length=5))
+```
+```{r}
+# triangular shape for pTheta, this is the prior distribution
+pTheta=pmin(Theta,1-Theta) 
+# Make pTheta sum to 1.0
+(pTheta = pTheta/sum(pTheta)) 
+# Single flip with 1 head, new data
+Data = c(rep(0,0), rep(1,1))
+Data
+```
+Function pmin() returns parallel minimum, ie minimum of 2 vectors, Theta and 1-theta by position, calculate likelihood and posterior
+
+```{r}
+#prior
+pTheta
+# likelihood, Theta is vector, data =1, one successful coin flip
+(likelihood <- Theta^Data *(1-Theta)^(1-Data))
+#posterior= prior dist of theta * likelihood (w new data) --- denominator is sum of numerator
+(post = pTheta*likelihood/sum(pTheta*likelihood))
+
+
+### Adjusted BernGrid code 
+graphics.off()
+openGraph(width=5,height=7)
+posterior = BernGrid(Theta, pTheta , Data)
+#saveGraph(file="BernGridExample0",type="eps")
+```
+
+
+# 33333333333333333333333333333  BernGrid() doesnt work
+```{r}
+## Full BernGrid code from workshop
+openGraph(width=5,height=7)
+(posterior = BernGrid( Theta, pTheta , Data , plotType="Bars" , showCentTend="None" , showHDI=FALSE , showpD=FALSE ))
+saveGraph(file="BernGridExample0",type="eps")
+```
+Which of the functions has more influence on the posterior: prior or likelihood?
+
+Prior distribution has more influence on the posteriror
+
+## 4.3 Binomial model, uniform prior with 1001 values
+
+increast the number of values of theta to 1001 make prior uniform on [0,1]
+```{r}
+#Fine teeth for theta
+Theta=seq(0,1, length=1001)
+# Uniform horizontal shape for pTheta: prior distribution
+pTheta = rep(1, length(Theta))
+# make pTheta equal to 1
+pTheta=pTheta/sum(pTheta)
+# single flip with 1 head : new observation
+Data = c(rep(0,0),rep(1,1))
+
+```
+
+
+```{r}
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars")# , 
+                      #showCentTend="None" , showHDI=FALSE , showpD=FALSE )
+
+```
+Which of the functions has more influence on the posterior: prior or likelihood?
+The likelihood has the higher influence on the posterior
+
+## 4.4 Binomibal model, binary prior with values (0,1)
+
+make prior distribution giving probs 0.5 to theat=0,1 and prob 0 to all othervalues of theta
+
+```{r}
+# Fine teeth for theta
+Theta = seq(0,1,length=1001)
+# Only extremes are possible
+pTheta = rep(0,length(Theta))
+# Only extremes are possible
+pTheta[2]= 1
+pTheta[length(pTheta) - 1]=1
+# Make ptheta sum to 1.0            : prior distribution
+pTheta = pTheta/sum(pTheta)
+# single flip with 1 head           : new data
+Data = c(rep(0,0),rep(1,1))
+
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                     # showCentTend="None" , showHDI=FALSE , showpD=FALSE )
+
+
+```
+Compromise between the prior and likelihood resulted in concentration of the posterior at the observed value
+
+## 4.5 binomial model, triangular prior with 1000 values, 4 observations
+
+Make prior with triangular shape.
+Make the number of Bernoulli trials equal to 4, of which one outcome is Head (??=1??=1) and three outcomes are Tails.
+Calculate likelihood and posterior yourself, compare with BernGrid().
+```{r}
+# Calculate likelihood and posterior manually for comparison
+
+# Fine teeth for theta
+Theta = seq(0,1, length = 1001)
+# Triangular shape for pTheta
+pTheta = pmin(Theta, 1-Theta)
+# Make pTheta sum to 1          : prior distribution
+pTheta=pTheta/sum(pTheta)
+#25% heads, N=4                 : New observation
+Data = c(rep(0,3), rep(1,1))
+
+# calculate likelihood 
+likelihood = Theta^sum(Data)*(1-Theta)^(4-sum(Data))
+# calculate the posterior probability           : prior * likelihood / sum(numerator)
+post=pTheta*likelihood
+post=post/sum(post)
+
+# Plot prior
+plot(Theta, pTheta)
+# plot likelihood
+plot(Theta,likelihood)
+# plot posterior
+plot(Theta, post)
+```
+```{r}
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                      #showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+The posterior plot looks the same, curved with a kink on the right side of the distribution
+
+## 4.6 Binomial model, concentrated prior, 4 observations
+
+Make the prior concentrated at 0.5 by taking it to the power of 10
+```{r}
+# Fine teeth for theta
+Theta = seq(0,1, length = 1001)
+# Triangular shape for pTheta
+pTheta = pmin(Theta, 1-Theta)
+# Make pTheta sum to 1
+pTheta=pTheta/sum(pTheta)
+# sharpen pTheta
+pTheta = pTheta^10
+# Make pTheta sum to 1      : prior distribution
+pTheta=pTheta/sum(pTheta)
+#25% heads, N=4             : New data observation
+Data = c(rep(0,3), rep(1,1))
+```
+
+```{r}
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                      #showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+
+The Prior has more influence on the posterior becuase the concentration is so strong
+
+
+## 4.7 Binomial model, dispersed prior, 4 observations
+
+Smear the prior to almost flat shape by taking ptheta to the power of 0.1
+```{r}
+# Fine teeth for Theta.
+Theta = seq( 0 , 1 , length=1001 )
+# Triangular shape for pTheta.
+pTheta = pmin( Theta , 1-Theta ) 
+# Make pTheta sum to 1.0
+pTheta = pTheta/sum(pTheta)      
+# Flatten pTheta !
+pTheta = pTheta^0.1              
+# Make pTheta sum to 1.0        : Prior distribution
+pTheta = pTheta/sum(pTheta) 
+# 25% heads, N=4                : New data observation
+Data = c(rep(0,3),rep(1,1))     
+
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                     # showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+The Likelihood function has th emost influence on the posteriro
+
+## 4.8 binomial model, triangular prior, 40 observations
+
+increase the nunber of bernoulli trials to 40
+Keep the proportion of head to tail sin the data as 3/1
+
+```{r}
+# Fine teeth for Theta.
+Theta = seq( 0 , 1 , length=1001 ) 
+# Triangular shape for pTheta.
+pTheta = pmin( Theta , 1-Theta )
+# Make pTheta sum to 1.0                  : Prior distribution
+pTheta = pTheta/sum(pTheta)
+# 25% heads, N=40                         : New data observation
+Data = c(rep(0,30),rep(1,10))    
+
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                      #showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+How did the influence of the prior and the likelihood change?
+
+## 4.9 Binomial model, concentrated prior, 40 observations
+
+With the same number and ratio of observations make the prior condensed around 0.5
+```{r}
+# Fine teeth for Theta.
+Theta = seq( 0 , 1 , length=1001 )  
+# Triangular shape for pTheta.
+pTheta = pmin( Theta , 1-Theta )
+# Make pTheta sum to 1.0
+pTheta = pTheta/sum(pTheta)
+# Sharpen pTheta !
+pTheta = pTheta^10
+# Make pTheta sum to 1.0                    : Prior distribution
+pTheta = pTheta/sum(pTheta)
+# 25% heads, N=40                           : New data observation
+Data = c(rep(0,30),rep(1,10))    
+
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                      #showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+
+## 4.10 Binomial model, flat prior, 40 observations
+
+Flatten the prior, given the same data
+
+```{r}
+# Fine teeth for Theta.
+Theta = seq( 0 , 1 , length=1001 ) 
+# Triangular shape for pTheta
+pTheta = pmin( Theta , 1-Theta ) 
+# Make pTheta sum to 1.0
+pTheta = pTheta/sum(pTheta)
+# Flatten pTheta 
+pTheta = pTheta^0.1    
+# Make pTheta sum to 1.0              : Prior distribution
+pTheta = pTheta/sum(pTheta)
+# 25% heads, N=40                     : New observations
+Data = c(rep(0,30),rep(1,10))    
+
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                     # showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+## 4.11 Binomial model, bimodalprior, 27 observations
+
+Make the prior bimodal, the data generated by 27 Bernoulli trials with 13 tails and 14 heads
+```{r}
+# Fine teeth for Theta
+Theta = seq( 0 , 1 , length=1000 )  
+# Two triangular peaks on a small non-zero floor:
+pTheta = c( rep(1,200),seq(1,100,length=50),seq(100,1,length=50),rep(1,200) , 
+            rep(1,200),seq(1,100,length=50),seq(100,1,length=50),rep(1,200) )
+
+# Make pTheta sum to 1.0                          : Prior distribution
+pTheta = pTheta/sum(pTheta)   
+# Data one sucess                                 : New observation
+Data = c(rep(0,13),rep(1,14)) 
+
+#openGraph(width=5,height=7)
+posterior = BernGrid( Theta, pTheta , Data)# , plotType="Bars" , 
+                     #showCentTend="None" , showHDI=FALSE , showpD=FALSE )
+```
+```{r}
+#saveGraph(file="BernGridExample10",type="eps")
+#------------------------------------------------------------------------------
+par(mfrow=c(1,1))
+```
+# 5 Posterior distribution by simulation. Updating prior and adding new data
+
+Look again at the example in section 4.32 with uniform prior
+follow the steps of obtaining posterior distribution by Monte Carlo
+
+Define likelihood function for binomial distributions
+p(??|??)=????(1?????)(1?????)
+```{r}
+likeli<-function(par,data){
+  sdata<-sum(data)
+  ldata<-length(data)
+  return(par^sdata*(1-par)^(ldata-sdata))
+}
+```
+Define values of parameter ?? and prior distribution.
+```{r}
+
+# Fine teeth for Theta.
+Theta = seq( .00001 , 1-.00001 , length=1001 ) 
+# Uniform (horizontal) shape for pTheta.
+pTheta = rep(1,length(Theta))
+# Make pTheta sum to 1.0              : prior distribution, uniform
+pTheta = pTheta/sum(pTheta)        
+plot(Theta,pTheta)
+```
+Create data of length 5 generated by the model with parameter =0.84
+```{r}
+# Set seed for reproducibility              : New data observations
+set.seed(5)
+(Data <- rbinom(5, size=1, prob=.84))
+```
+Create sample of Theta generated from the prior distribution
+```{r}
+set.seed=15
+# create an Index that is a sample of 500 observations, from Theta (1001 obsv)
+priorInd <- sample(1:length(Theta), 500, replace=T)
+# create the column of Thetas, and prob(which are uniform)
+priorSample <- cbind(Theta=Theta[priorInd],Prob=pTheta[priorInd])
+# add the first and the last observations to the 501 and 502nd row of priorSample
+priorSample <- rbind(priorSample,c(head(Theta,1),head(pTheta,1)),c(tail(Theta,1),tail(pTheta,1)))
+# Check the tail
+tail(priorSample)
+```
+Calculate the likelihood for each simulated theta and the data
+```{r}
+# Using likelihood function, inputs theta and data : p(??|??)= ??^?? * (1?????)^(1?????)
+likelihoodVector <- sapply(priorSample[,"Theta"], function(z) likeli(z,Data))
+head(likelihoodVector)
+# likelihood at each theta
+plot(priorSample[,"Theta"], likelihoodVector)
+```
+Calculate posterior distribution. Use posterior = prior * likelihood / sum (numerator)
+
+Calculate vector of numerators of the Bayes theorem
+Normalize it
+Create function for linear interpolation of vector of numerator
+
+```{r}
+# posterior = prior * likelihood
+postVector = priorSample[,"Prob"]*likelihoodVector
+# make posterior sum to 1
+postVector <- postVector/sum(postVector)
+# function that will take linear interploation of thetas and posterior probs:postDistr
+postDistr<-approxfun(priorSample[,"Theta"],postVector,method="linear")
+# plot posterior at each theta, add linear interpolation
+plot(priorSample[,"Theta"], postVector)
+lines(Theta, postDistr(Theta), col="red", lwd=2)
+```
+```{r}
+# check the lenght of linear interpolationof Theta
+length(postDistr(Theta))
+# Assign the distribution
+postDistr1 <- postDistr(Theta)
+head(postDistr1)
+```
+Calculate mode, mean and variance of the posterior distribution
+```{r}
+#mode
+(mode1 <- Theta[which.max(postDistr(Theta))])
+# mean
+(mean1 <- Theta%*%postDistr(Theta)/sum(postDistr(Theta)))
+# variance
+(var1 <- ((Theta-mean1)^2)%*%postDistr(Theta)/sum(postDistr(Theta)))
+```
+Replace prior distribution with the posterior distribution and generate new data.
+```{r}
+set.seed(25)
+# New prior distribution
+pTheta <- postDistr(Theta)/sum(postDistr(Theta))
+# Data, same as before, new seed
+(Data <- rbinom(5, size=1, prob=.84))
+```
+
+Repeat the steps of estimation
+```{r}
+set.seed(35)
+# create index of thetas, which is a sample of 500  
+priorInd <- sample(1:length(Theta),500,replace=T)
+# create matrix of Thetas and new priors
+priorSample <- cbind(Theta=Theta[priorInd],Prob=pTheta[priorInd])
+# add the first and last thetas
+priorSample <- rbind(priorSample, c(head(Theta,1),head(pTheta,1)),c(tail(Theta,1),tail(pTheta,1)))
+# Calculate likelihood = p(??|??)= ??^?? * (1?????)^(1?????)
+likelihoodVector <- sapply(priorSample[,"Theta"], function(z) likeli(z, Data))
+# plot likelihood for each theta
+plot(priorSample[,"Theta"], likelihoodVector)
+
+```
+Calculate the posterior distribution, plot with the linear interpolation
+```{r}
+# posterior distribution is prior * likelihood / sum(numerator)
+postVector<-priorSample[,"Prob"]*likelihoodVector
+postVector<-postVector/sum(postVector)
+# Plot posterior distribution
+plot(priorSample[,"Theta"],postVector)
+
+# create linear approximation of posterior distribution
+postDistr<-approxfun(priorSample[,"Theta"],postVector,method="linear")
+# plot posterior distribution with linear interpolation
+plot(priorSample[,"Theta"],postVector)
+lines(Theta,postDistr(Theta),col="red",lwd=2)
+```
+```{r}
+# run approx function on the Thetas
+postDistr2<-postDistr(Theta)
+# mode
+(mode2 <- Theta[which.max(postDistr(Theta))])
+#mean
+(mean2 <- Theta%*%postDistr(Theta)/sum(postDistr(Theta)))
+# variance
+(var2 <- ((Theta-mean2)^2)%*%postDistr(Theta)/sum(postDistr(Theta)))
+
+```
+Compare the tow posteriors
+```{r}
+matplot(Theta, cbind(postDistr1, postDistr2), type = "l", lty=1, ylab="Posterior", lwd=2)
+legend("topleft", legend = c("First Sample", "Second Sample"), lty=1, col=c("black","red"), lwd=2)
+```
+
+# 6 Example: Expressing prior knowledge as beta distribution
+This is example from Section 6.4.1 of [K].
+It uses the author's script BernBetaExample.R.
+
+```{r}
+source(paste(dataPath,"DBDA2E-utilities.R",sep="/"))  # Load definitions of graphics functions etc.
+```
+
+## 6.1 Situation  1
+
+A coin known to be regular gets 20 flips of which 17 or 85% are heads.
+Despite this there is a strong prior belief that the coin is fair with concentration of 500 observations. What is your posterior believe about the probability of heads?
+
+Posterior is still that it is fair, only 20 observations are not enough since the prior belief is based on 500 observations.
+
+Express prior belief in terms of parameters of beta distribution.
+```{r}
+# Specify the prior mode
+t=0.5
+# specify the effectiveprior samplesize
+n=500
+# convert to beta shape parameter a
+a=t*(n-2)+1
+# Convert to beta shape parameterb
+b=(1-t)*(n-2)+1
+
+```
+Form the prior shapes paramaters vector
+```{r}
+# specify prior as vector with the two shape parameters
+(Prior=c(a,b))
+```
+Define the data of size 20 and number of heads 17
+Note that Data should be a sequence of 1s and 0s
+```{r}
+# Specify the data
+# total number of flips
+N=20
+# total number of heads
+z=17
+# Convert N and z into vector of 0s and 1s
+Data = c(rep(0, N-z), rep(1,z))
+```
+Most of the code of function BernBeta() is checking for input-output and preparation of the graph.
+So, in order to understand it better run a quick separate calculations using the grid approach of the previous sections of this workshop.
+
+Use the same function for calculating binomial likelihood as in the previous sections of this workshop.
+
+```{r}
+likeli<-function(par,data){
+  sdata<-sum(data)
+  ldata<-length(data)
+  return(par^sdata*(1-par)^(ldata-sdata))
+}
+```
+Define the grid of values for ??.
+Define the prior as beta distribution with the shape parameters in Prior.
+Plot prior.
+```{r}
+# Make grid of theta
+Theta = seq(0,1,length=1001)
+# Beta prior distributions, using parameters alpha and Beta
+#dbeta gives the density
+pTheta = dbeta(Theta, shape1 = Prior[1], shape2=Prior[2])
+# plot Theta vs priordistribution
+plot(Theta, dbeta(Theta, shape1=Prior[1], shape2 = Prior[2]), ylab="Prior")
+
+
+```
+Calculate likelihood for Data, given values in Theta
+```{r}
+likelihood <- likeli(Theta, Data)
+plot(Theta, likelihood)
+```
+Calculate posterior distribution for Theta using grid approximation
+You may need to normalize the posterior distribution to make it add up to 1
+```{r}
+post <- pTheta*likelihood
+post <- 1000*post/(sum(post))
+# plot the posteriro
+plot(Theta, post)
+```
+find the mode of the posterior
+```{r}
+(mode <- Theta[which.max(post)])
+```
+Calculate posterior using the analytical formula
+```{r}
+#dbeta gives the density
+postBeta <- dbeta(Theta, shape1 = z+Prior[1], shape2 = N-z+Prior[2])
+plot(Theta, postBeta)
+# return the mode
+(mode <- Theta[which.max(postBeta)])
+```
+Now run the script from the book
+```{r}
+suppressWarnings(source(paste(dataPath,"BernBeta.R",sep="/")))
+#openGraph(width=5,height=7)
+posterior = BernBeta( priorBetaAB=Prior, Data=Data , plotType="Bars" , 
+                      showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+Conclusion:
+Very strong prior knowledge expressed by mode of 0.5 and concentration of 500 could not be affected by a samplee of 20 coin flips, even if estimated frequency from these data shows probability of 85% heads
+
+## 6.2 Situation 2
+
+A professional basketball player makes 20 free throws.
+We know that professionals tend to make 75% of free throws, majority makes 50% or more, but very few make more than 90%.
+This knowledge is reflected in a beta distribution with mode ??=0.75 and concentration ??=25.
+Such distribution has 95% highest density interval (HDI) approximately between 0.5 and 0.9.
+Think how you would define concentration to satisfy the requirement that 95% HDI equals [0.5,0.9].
+
+
+Define a concentration, where k = a/(a+b) We can try different a, b pairs , where mean is 0.75, until we get the 0.25 and .975 HDI points will equal 0.5 and 0.9
+
+
+What is your posterior believe this time?
+```{r}
+# specify the prior mode
+t=0.75
+# specify the effective prior sample size
+n=25
+# convert to beta shape alpha
+a=t*(n-2)+1
+# convert to beta shape beta
+b=(1-t)*(n-2)+1
+# specify prior as a vector with the two shape parameter
+(Prior <- c(a,b))
+```
+```{r}
+# Specify the data
+# Total number of flips
+N=20
+# Total number of made shots
+z=17
+# convert N and z into vectorof0s and 1s
+Data = c(rep(0,N-z), rep(1,z))
+
+```
+
+Use the analytical formula to calculate the posteriror
+```{r}
+#dbeta gives the density
+postBeta<-dbeta(Theta,shape1=z+Prior[1],shape2=N-z+Prior[2])
+plot(Theta, postBeta)
+```
+Calculate the mode
+```{r}
+(mode <- Theta[which.max(postBeta)])
+```
+```{r}
+#openGraph(width=5,height=7)
+posterior = BernBeta( priorBetaAB=Prior, Data=Data , plotType="Bars" , 
+                      showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+```{r}
+#saveGraph(file="BernBetaExample",type="png")
+par(mfrow=c(1,1))
+```
+This time posterior tells us that the result of the observed free throws is much closer to the posterior: observed result is 85% and the posterior mode is 79.7%.
+But we still think that the observed data overestimate the parameter: majority of professional players will show about 75%.
+
+We should have used a stronger prior, if we didnt want the new observations to influence the prior as much. Or we need more new observations, that would be a better representation of the population.
+
+
+## 6.3 Situation 3
+
+Finally, the third situation described in the book is related to a study of an unknown substance on a remote planet.
+The robot on the surface showed that the substance can be either blue or green.
+Again, out of 20 taken samples 17 are blue.
+There is really no other information about the substance.
+So, a reasonable prior is uniform distribution on [0,1].
+
+
+```{r}
+#specify the prior
+a=b=1
+(Prior=c(a,b))
+```
+```{r}
+# Specify the data
+# Number of colored observations
+N=20
+# number of blue substances
+z=17
+# Convert N and z into vectors of 0s and 1s
+Data <- c(rep(0,N-z), rep(1,z))
+```
+
+Use analytical formula to calculate posterior
+```{r}
+#dbeta gives the density
+postBeta <- dbeta(Theta, shape1 = z+Prior[1], shape2=N-z+Prior[2])
+plot(Theta, postBeta)
+```
+```{r}
+(mode <- Theta[which.max(postBeta)])
+```
+Run the analysis
+```{r}
+#openGraph(width=5,height=7)
+posterior = BernBeta( priorBetaAB=Prior, Data=Data , plotType="Bars" , 
+                      showCentTend="Mode" , showHDI=TRUE , showpD=FALSE )
+```
+We see that with as little information as we have we have to rely on the obtained sample: the mode of the posterior distribution is the same as maximum of the sample.
+
+# 7 Exercise 6.2 from Kruschke textbook
+
+Before an election there is a poll of 100 randomly sampled people of which 58 preferred candidate A and 42 prefer candidate B.
+Which of the candidates is supported by public?
+
+Assume that before the poll prior belief is uniform.
+What is the 95% HDI on the posterior distribution.
+```{r}
+Prior <- c(a=1,b=1)
+Data <- c(s=100,k=58)
+(Posterior <- c(Prior[1]+Data["k"], Prior["b"]+Data["s"]-Data["k"]))
+# calculate HDI
+(HDI <- c(qbeta(.025,Posterior["a"],Posterior["b"]),
+          qbeta(.975,Posterior["a"],Posterior["b"])))
+```
+
+Use BernBeta()
+```{r}
+post<-BernBeta(Prior,Data=c(rep(1,58),rep(0,100-58)),showHDI=TRUE,showCentTend="Mode")
+```
+
+For a follow up poll sample randomly another 100 people. Assume that the new poll results are: 57 prefer candidate A and 43 prefer candidate B.
+What is 95% HDI of the new posterior, assuming that opinions did not change since the first poll?
+```{r}
+Data<-c(s=100,k=57)
+Prior <- Posterior
+Posterior.2 <- c(Prior[1]+Data[2], Prior[2]+Data[1]-Data[2])
+# return 2nd round HDI
+(HDI.2 <- c(qbeta(.025, Posterior.2["a"],Posterior.2["b"]),
+            qbeta(.975, Posterior.2["a"], Posterior.2["b"])))
+```
+run BernBeta()
+```{r}
+post<-BernBeta(Prior,Data=c(rep(1,Data["k"]),rep(0,Data["s"]-Data["k"])),
+               showHDI=TRUE,showCentTend="Mode")
+```
+
+# 8 Predicting binomial probability and bernoulli outcome
+
+Imagine that in a medical study a group of laboratory animals selected with strong belief that they should respond to an experimental treatment with 50% rate.
+Yet the study shows that 9 out of 10 animals have negative results.
+What is the predicted probability of success for the 11-th animal?
+
+1. Select parameters for the prior distribution, for example, consistent with requirement to observe at least 100 outcomes of independent Bernoulli trials to shift the belief.
+2. Create data reproducing the results of the experiment
+3. Find posterior distribution of the parameter
+4. Find the predicted value of the parameter for an additional animal in the sample
+5. Find probability of disease in the next tested animal
+```{r}
+# 1. Set parameters for the prior distribution
+# set the concentration 
+kappa <- 100
+# set the mean
+mu <- 0.5
+# assign alpha and beta
+alpha <- mu*kappa
+beta <- (1-mu)* kappa
+
+# 2. turn data into a vector
+# 1 is a negative result
+data <- c(rep(1,9),rep(0,1))
+# set s
+data.s <- length(data)
+# set k
+data.k <- sum(data)
+
+# 3. Find the posterior distribution
+# return alpha posterior
+(alpha.post <- alpha+data.k)
+# return beta posterior
+(beta.post <- beta+data.s-data.k)
+#dbeta gives the density
+postBeta <- dbeta(Theta, shape1 = alpha.post, beta.post)
+plot(Theta, postBeta)
+
+# 4. Find the predicted value of the parameter for an additional animal in the sample
+(mean.posterior<-alpha.post/(alpha.post+beta.post))
+
+#5. Find probability of disease in the next tested animal
+(likelihood.postTheta<-mean.posterior^1*(1-mean.posterior)^0)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
