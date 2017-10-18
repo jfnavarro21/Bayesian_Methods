@@ -1,0 +1,452 @@
+---
+title: "Week 3 Workshop Navarro"
+author: "John Navarro"
+date: "October 18, 2017"
+output: pdf_document
+---
+
+# 1 References
+
+[G] Andrew Gelman, John B. Carlin, Hal S. Stern, David B. Dunson, Aki Vehtari, Donald B. Rubin, Bayesian Data Analysis, Third Edition, 2013, Taylor & Francis Group.
+[K] John K. Kruschke, Doing Bayesian Data Analysis, A Tutorial with R, JAGS, and STAN, 2015, Elsevier.
+
+# 2. Exchangeability and sampling
+
+Example in section 5.2 of [G].
+
+## 2.1 Data
+
+For selected 8 state recorded divorce rates per 1000 population in 1981 are: y=[y1,y2,y3,y4,y5,y6,y7,y8]
+
+What can we say about y8?
+
+There is no information that allows distinguishing this observation from others, so we have to assume that the joint distribution is exchangeable.
+
+Prior distribution for y can be selected as beta or other distribution, it should be vague.
+
+## 2.2 Data on 7 states out of 8
+
+Now 7 out of 8 states are randomly selected and given to us:
+
+```{r}
+y.7<-c(5.8,6.6,7.8,5.6,7.0,7.1,5.4)
+```
+
+Again, what can we say about the remaining 8-th state?
+
+A reasonable predictive posterior distribution would be based on the samle and centered around 6.5 with most of its mass concentrated between 5 and 8.
+
+```{r}
+summary(y.7)
+```
+Putting the remaining state rate at any position within the sample does not change the joint distribution. The data are still exchangeable. But they may not be independent, since we expect that the remaining state is similar to others.
+
+## 2.3 Known group of states
+
+The next additional prior information is: the 8 states are the Mountain states, i.e. Arizona, Colorado, Idaho, Montana, Nevada, New Mexico, Utah, Wayoming selected in random order.
+We still don't know which divorce rate corresponds to which state.
+
+With this information before the 7 state rates are observed the data should still be modelled exchangeably.
+
+But the PRIOR FOR ALL 8 numbers must be different:
+
+* Utah has large Mormon population which makes divorce rate lower than other states
+* Nevada has more liberal divorce laws which makes the rate higher than in other states
+Such consideration may result in a wider tails of the distribution to allow for outliers.
+
+After observing the rates for random 7 states we notice that the numbers are close together.
+It might mean that the missing state is either Utah or Nevada.
+If that is true the posterior distribution might be bimodal or even trimodal.
+But the joint distribution on all 8 states is still exchangeable.
+
+## 2.4 Known missing state
+
+Now, if we learn that the missing state is Nevada, we cannot think of data as exchangeable even before the 7 state rates are revealed, since there is information distinguishing y8 from other states: we expect it to be larger than others.
+After observing the 7 states we would expect the posterior distribution to have the property that $p(y_8>max(y_1,,y_7)|y_1,,y_7) is large.
+
+Indeed the divorce rate per 1000 population in Nevada in 1981 was 13.9,
+
+## 3 Binomial Model with hyperparameters
+
+To make the next step and create a chierarchical model assume that concentration ???? is still constant, but mode ?? is random, so, we need to define a prior and find posterior distribution for it.
+
+## 3.1 High concentration, uncertain hyperparameter
+
+Let the prior distribution for ?? be Beta(A??,B??), where A?? and B?? are constants.
+
+Both parameters have finite domain [0,1], so solve the problem by grid approximation.
+
+Let ??=100 be fixed and A??=B??=2. These parameters correspond to density function
+```{r}
+Omega <- Theta <- seq(0,1,length=101)
+plot(Omega, dbeta(Omega,2,2))
+```
+Define parameters of the hyperprior.
+```{r}
+# alpha for omega
+A_omega<-2
+# beta for omega
+B_omega<-2
+#concentration for omega prior distrb
+K<-100
+```
+Calculate and visualize joing prior and its marginals
+```{r}
+jointPrior<-function(theta,omega,A_omega,B_omega,K){
+  res<-dbeta(omega,A_omega,B_omega)*dbeta(theta,omega*(K-2)+1,(1-omega)*(K-2)+1)
+  res
+}
+```
+```{r}
+# Plot distribution of Omega prior
+dens<-expand.grid(Omega,Theta)
+colnames(dens)<-c("Omega","Theta")
+dens$Prior<-apply(dens,1,function(z) jointPrior(z[1],z[2],A_omega,B_omega,K))
+Prior.theta.omega<-matrix(dens$Prior,101,101)
+Prior.theta.omega<-Prior.theta.omega/sum(Prior.theta.omega) #Joint prior
+Prior.omega.marginal<-apply(Prior.theta.omega,2,sum)
+Prior.omega.marginal<-Prior.omega.marginal/sum(Prior.omega.marginal)*100 #Omega marginal prior
+matplot(Omega,cbind(Prior.omega.marginal,dbeta(Omega,A_omega,B_omega)),type="l",ylab="Marginal p(omega)")
+```
+```{r}
+# plot distribution of theta prior
+Prior.theta.marginal<-apply(Prior.theta.omega,1,sum)
+Prior.theta.marginal<-Prior.theta.marginal/sum(Prior.theta.marginal)*100 #Theta marginal prior
+plot(Theta,Prior.theta.marginal,type="l",ylab="Marginal p(theta)")
+```
+```{r}
+persp(Theta,Omega,Prior.theta.omega,d=1,theta=-25,phi=20,main="Joint Prior Distribution")
+```
+```{r}
+contour(x=Omega,y=Theta,z=Prior.theta.omega,ylab="omega",xlab="theta",main="Joint Prior Distribution")
+```
+Show dependence of ?? on ??.
+```{r}
+par(mfrow=c(3,1))
+Prior.theta.omega.25<-jointPrior(Theta,0.25,A_omega,B_omega,K)
+Prior.theta.omega.25<-Prior.theta.omega.25/sum(Prior.theta.omega.25)*100
+plot(Theta,Prior.theta.omega.25,type="l",ylab="p(theta|omega=0.25)",main="Marginal prior for Theta")
+Prior.theta.omega.5<-jointPrior(Theta,0.5,A_omega,B_omega,K)
+Prior.theta.omega.5<-Prior.theta.omega.5/sum(Prior.theta.omega.5)*100
+plot(Theta,jointPrior(Theta,0.5,A_omega,B_omega,K),type="l",ylab="p(theta|omega=0.5)")
+Prior.theta.omega.75<-jointPrior(Theta,0.75,A_omega,B_omega,K)
+Prior.theta.omega.75<-Prior.theta.omega.75/sum(Prior.theta.omega.75)*100
+plot(Theta,jointPrior(Theta,0.75,A_omega,B_omega,K),type="l",ylab="p(theta|omega=0.75)")
+```
+```{r}
+par(mfrow=c(1,1))
+```
+the likelihood is based on the data of 9 successes out of 12 bernoulli trials
+```{r}
+likeli<-function(theta,s,k){
+  theta^k*(1-theta)^(s-k)
+}
+```
+```{r}
+likelihood<-likeli(Theta,12,9)
+plot(Theta,likelihood,type="l",ylab="p(y|theta)",main="Likelihood")
+```
+Likelihood directly depends only on ????, but not on ????.
+
+Posterior distribution is obtained by multiplication of the joint prior by likelihood at each point (??i,??j).
+
+```{r}
+Posterior<-apply(Prior.theta.omega,2,function(z) z*likelihood)
+Posterior<-Posterior/sum(Posterior)
+Posterior[1:5,1:5]
+```
+Plot the joing posterior distribution
+```{r}
+persp(Theta,Omega,Posterior,d=1,theta=-25,phi=20,main="Joint Posterior Distribution")
+```
+```{r}
+contour(x=Omega,y=Theta,z=Posterior,ylab="omega",xlab="theta",main="Joint Posterior Distribution")
+```
+Calculate and plot posterior marginal distributions p(??|y), p(??|y)p(??|y), p(??|y) by adding the joint posterior matrix by row or by column.
+```{r}
+Posterior.omega.marginal<-apply(Posterior,2,sum)
+Posterior.omega.marginal<-Posterior.omega.marginal/sum(Posterior.omega.marginal)*100
+plot(Omega,Posterior.omega.marginal,type="l")
+```
+```{r}
+Posterior.theta.marginal<-apply(Posterior,1,sum)
+Posterior.theta.marginal<-Posterior.theta.marginal/sum(Posterior.theta.marginal)*100
+plot(Theta,Posterior.theta.marginal,type="l")
+```
+Show dependence of ?? on ??.
+```{r}
+par(mfrow=c(3,1))
+#Omega=0.25
+Post.theta.omega.25<-Posterior[,match(0.25,Omega)]
+Post.theta.omega.25<-Post.theta.omega.25/sum(Post.theta.omega.25)*100
+plot(Theta,Post.theta.omega.25,type="l",ylab="p(theta|omega=0.25,y)",main="Marginal posterior for Theta")
+#Omega=0.5
+Post.theta.omega.5<-Posterior[,match(0.5,Omega)]
+Post.theta.omega.5<-Post.theta.omega.5/sum(Post.theta.omega.5)*100
+plot(Theta,Post.theta.omega.5,type="l",ylab="p(theta|omega=0.25,y)",main="Marginal posterior for Theta")
+#Omega=0.75
+Post.theta.omega.75<-Posterior[,match(0.75,Omega)]
+Post.theta.omega.75<-Post.theta.omega.75/sum(Post.theta.omega.75)*100
+plot(Theta,Post.theta.omega.75,type="l",ylab="p(theta|omega=0.25,y)",main="Marginal posterior for Theta")
+```
+```{r}
+par(mfrow=c(1,1))
+```
+
+Compare marginal priors and posteriors for both parameters.
+```{r}
+matplot(Theta,cbind(Prior.theta.marginal,Posterior.theta.marginal),type="l")
+```
+```{r}
+matplot(Omega,cbind(Prior.omega.marginal,Posterior.omega.marginal),type="l")
+```
+Compare conditional priors and posteriors for ??
+```{r}
+matplot(Theta,cbind(Prior.theta.omega.25,Post.theta.omega.25),type="l",ylab="Conditional Prior and Posterior, omega=0.25")
+```
+```{r}
+matplot(Theta,cbind(Prior.theta.omega.5,Post.theta.omega.5),type="l",ylab="Conditional Prior and Posterior, omega=0.5")
+```
+```{r}
+matplot(Theta,cbind(Prior.theta.omega.75,Post.theta.omega.75),type="l",ylab="Conditional Prior and Posterior, omega=0.75")
+```
+The conditional posteriors do not differ a lot from the conditional priors.
+What is the reason?
+
+This is because we started with a high concentration, which would require a large data set to make the posterior much different from the prior.
+
+## 3.2 Low concentration, more certain hyperparameter
+
+Let ??=6 be fixed and A??=B??=20. These parameters correspond to density function
+```{r}
+Omega<-Theta<-seq( 0 , 1 , length=101 )
+plot(Omega,dbeta(Omega,20,20))
+```
+The joint prior is:
+p(??,??)=p(??|??)p(??)=dbeta(??|??(6???2)+1,(1?????)(6???2)+1)dbeta(??|2,2)
+
+Define parameters of the hyperprior.
+```{r}
+A_omega<-20
+B_omega<-20
+K<-6
+```
+Calculate and visualize joint prior and its marginals.
+```{r}
+jointPrior<-function(theta,omega,A_omega,B_omega,K){
+  res<-dbeta(omega,A_omega,B_omega)*dbeta(theta,omega*(K-2)+1,(1-omega)*(K-2)+1)
+  res
+}
+```
+```{r}
+dens<-expand.grid(Omega,Theta)
+colnames(dens)<-c("Omega","Theta")
+dens$Prior<-apply(dens,1,function(z) jointPrior(z[1],z[2],A_omega,B_omega,K))
+Prior.theta.omega<-matrix(dens$Prior,101,101)
+Prior.theta.omega<-Prior.theta.omega/sum(Prior.theta.omega) #Joint prior
+Prior.omega.marginal<-apply(Prior.theta.omega,2,sum)
+Prior.omega.marginal<-Prior.omega.marginal/sum(Prior.omega.marginal)*100 #Omega marginal prior
+matplot(Omega,cbind(Prior.omega.marginal,dbeta(Omega,A_omega,B_omega)),type="l",ylab="Marginal p(omega)")
+```
+```{r}
+Prior.theta.marginal<-apply(Prior.theta.omega,1,sum)
+Prior.theta.marginal<-Prior.theta.marginal/sum(Prior.theta.marginal)*100 #Theta marginal prior
+plot(Theta,Prior.theta.marginal,type="l",ylab="Marginal p(theta)")
+```
+```{r}
+persp(Theta,Omega,Prior.theta.omega,d=1,theta=-25,phi=20,main="Joint Prior Distribution")
+```
+```{r}
+contour(x=Omega,y=Theta,z=Prior.theta.omega,ylab="omega",xlab="theta",main="Joint Prior Distribution")
+```
+Show dependence of ???? on ????.
+```{r}
+par(mfrow=c(3,1))
+Prior.theta.omega.25<-jointPrior(Theta,0.25,A_omega,B_omega,K)
+Prior.theta.omega.25<-Prior.theta.omega.25/sum(Prior.theta.omega.25)*100
+plot(Theta,Prior.theta.omega.25,type="l",ylab="p(theta|omega=0.25)",main="Marginal prior for Theta")
+Prior.theta.omega.5<-jointPrior(Theta,0.5,A_omega,B_omega,K)
+Prior.theta.omega.5<-Prior.theta.omega.5/sum(Prior.theta.omega.5)*100
+plot(Theta,Prior.theta.omega.5,type="l",ylab="p(theta|omega=0.5)")
+Prior.theta.omega.75<-jointPrior(Theta,0.75,A_omega,B_omega,K)
+Prior.theta.omega.75<-Prior.theta.omega.75/sum(Prior.theta.omega.75)*100
+plot(Theta,Prior.theta.omega.75,type="l",ylab="p(theta|omega=0.75)")
+```
+```{r}
+par(mfrow=c(1,1))
+```
+
+The likelihood is based on the data of 9 successes out of 12 Bernoulli trials:
+```{r}
+likeli<-function(theta,s,k){
+  theta^k*(1-theta)^(s-k)
+}
+```
+
+```{r}
+likelihood<-likeli(Theta,12,9)
+plot(Theta,likelihood,type="l",ylab="p(y|theta)",main="Likelihood")
+```
+Likelihood directly depends only on ??, but not on ????.
+
+Posterior distribution is obtained by multiplication of the joint prior by likelihood at each point (??i,??j).
+```{r}
+Posterior<-apply(Prior.theta.omega,2,function(z) z*likelihood)
+Posterior<-Posterior/sum(Posterior)
+```
+
+```{r}
+Posterior[1:5,1:5]
+```
+Plot the joint posterior distribution.
+
+```{r}
+persp(Theta,Omega,Posterior,d=1,theta=-25,phi=20,main="Joint Posterior Distribution")
+```
+```{r}
+contour(x=Omega,y=Theta,z=Posterior,ylab="omega",xlab="theta",main="Joint Posterior Distribution")
+```
+Calculate and plot posterior marginal distributions p(??|y), p(??|y)p(??|y), p(??|y) by adding the joint posterior matrix by row or by column.
+
+```{r}
+Posterior.omega.marginal<-apply(Posterior,2,sum)
+Posterior.omega.marginal<-Posterior.omega.marginal/sum(Posterior.omega.marginal)*100
+plot(Omega,Posterior.omega.marginal,type="l")
+```
+
+```{r}
+Posterior.theta.marginal<-apply(Posterior,1,sum)
+Posterior.theta.marginal<-Posterior.theta.marginal/sum(Posterior.theta.marginal)*100
+plot(Theta,Posterior.theta.marginal,type="l")
+```
+
+Show dependence of ?? on ??.
+
+```{r}
+par(mfrow=c(3,1))
+#Omega=0.25
+Post.theta.omega.25<-Posterior[,match(0.25,Omega)]
+Post.theta.omega.25<-Post.theta.omega.25/sum(Post.theta.omega.25)*100
+plot(Theta,Post.theta.omega.25,type="l",ylab="p(theta|omega=0.25,y)",main="Marginal posterior for Theta")
+#Omega=0.5
+Post.theta.omega.5<-Posterior[,match(0.5,Omega)]
+Post.theta.omega.5<-Post.theta.omega.5/sum(Post.theta.omega.5)*100
+plot(Theta,Post.theta.omega.5,type="l",ylab="p(theta|omega=0.5,y)")
+#Omega=0.75
+Post.theta.omega.75<-Posterior[,match(0.75,Omega)]
+Post.theta.omega.75<-Post.theta.omega.75/sum(Post.theta.omega.75)*100
+plot(Theta,Post.theta.omega.75,type="l",ylab="p(theta|omega=0.75,y)")
+```
+```{r}
+par(mfrow=c(1,1))
+```
+Compare marginal priors and posteriors for both parameters.
+```{r}
+matplot(Theta,cbind(Prior.theta.marginal,Posterior.theta.marginal),type="l")
+```
+```{r}
+matplot(Omega,cbind(Prior.omega.marginal,Posterior.omega.marginal),type="l")
+```
+Compare conditional priors and posteriors for ??
+```{r}
+matplot(Theta,cbind(Prior.theta.omega.25,Post.theta.omega.25),type="l",ylab="Conditional Prior and Posterior, omega=0.25")
+```
+```{r}
+matplot(Theta,cbind(Prior.theta.omega.5,Post.theta.omega.5),type="l",ylab="Conditional Prior and Posterior, omega=0.5")
+```
+```{r}
+matplot(Theta,cbind(Prior.theta.omega.75,Post.theta.omega.75),type="l",ylab="Conditional Prior and Posterior, omega=0.75")
+```
+
+## 3.3 summary of the approach
+
+When model contains multiple parameters and allows hierarchical reparameterization, Bayesian approach means working with joint distribution of parameters.
+
+Hierarchical structure allows breaking joint distribution into marginal distributions for hyperparameters p(??),p(??|y)) and conditional distributions for main parameters (p(??|??),p(??|??,y))
+
+# 4. Multiple experiments with the same hyper parameters
+
+In the previous section there was one experiment resulting in a sample from a series of ss Bernoulli trials with kk successes and a parameter of binomial distribution ?? having beta distribution with parameters (??,??), of which ??=const and $Beta(A_{},B_{omega}).
+
+Now look at several experiments, each of which results in a series of Bernoulli trials with parameters ??j from a population Beta(??,??), where now ???? is estimated from all observations.
+
+Example. A drug is given to multiple patients followed by a test with series of binary outcomes. Each patient has his/her own bias (probability of success).
+
+Each patient is indexed by s=1,.,S, ??s is the probability of success.
+
+All probabilities ??s are affected by the drug. The effect of the drug is described as a tendency ??:
+
+??s???Beta(??(?????2)+1,(1?????)(?????2)+1),
+where ??=K is still a constant.
+
+Performance of each patient (subject) depends on ??s:
+yi|s???Binom(??s),
+,
+where i|s means i-th Bernoulli test of subject s.
+
+Look at hierarchy of the model on the diagram
+
+The model has S+1 parameters: [??1,.,??S,??] which need to be estimated from the data.
+If the main goal of the study is the effect of the drug and not specific tendency of each individual then the focus is on ????.
+
+Consider S=2. For this case see charts and comments on pages 232-234 in [K].
+We postpone working with more realistic models until we learn more about Bayesian calculations,
+
+# 5. Estimating the Risk of Tumor in a Group of Rats
+
+This is example from Section 5.1 of [G].
+
+In this study the goal was estimation of the probability of tumor ?? in a population of female laboratory rats of type "F344" that receive a zero dose of the drug (control group).
+In the experiment 4 out of 14 rats developed a tumor.
+
+```{r}
+Data<-c(s=14,k=4)
+```
+Select binomial model yi???Binom(??) with probability of tumor ?? and beta prior distribution for the parameter ??~Beta(??,??).
+
+Suppose we know from historical observation of population of "F344" the mean and the variance of beta distribution for ??.
+
+Using formulas in the interactive demonstration of beta distribution convert mean value ??=0.136 and standard deviation ??=0.1034 of observed empirical probabilities into shapes of beta distribution ??,??.
+
+```{r}
+mu<-.136
+sigmaSq<-.1034^2
+commonPart<-(mu*(1-mu)/sigmaSq-1)
+a<-mu*commonPart
+b<-(1-mu)*commonPart
+(Prior<-c(a=a,b=b))
+```
+Note that this is not a Bayesian approach since it is not based on probability model.
+
+Calculate posterior distribution.
+
+```{r}
+Data <- c(k=4,s=14)
+(Posterior<-c(Prior["a"]+Data["k"],Data["s"]-Data["k"]+Prior["b"]))
+```
+
+## 5.1 The full Bayesian analysis
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
