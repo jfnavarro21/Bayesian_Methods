@@ -1,0 +1,447 @@
+---
+title: "Week4 workshop"
+author: "John Navarro"
+date: "October 18, 2017"
+output: pdf_document
+---
+
+# 2. Multidimensional Spaces and MCMC
+
+# 3. Metropolis Algorithm
+
+Create a function that makes decision for one step of Metropolis random walk based on the initial state and vector of probabilities.
+Set vector of probabilities, for examle
+```{r}
+probabilities<-c(.1,.3,.5,.05,.05)
+sum(probabilities)
+init<-2
+```
+Repeat 100,000 steps and use the simulated trajectory to estimate probabilities of each state.
+Compare these proportions with the defined probabilities.
+```{r}
+# set the number of states
+# set the turn
+# set new states, which holds current, current + turn
+# if current + turn = # of states +1, then set current + turn to 1
+# if current + turn = 0, set current + turn to 5.
+# if prob of current + turn > prob current, set res to curr +turn
+# else set p = prob of current+turn/prob of current
+  # set res to sample of (current, current +turn, with prob 1-p,p)
+
+# create empty vector of 100,000 NAs
+#for( i in 1:100000)
+# run one step on on init, probabilites , store into trajectory[i]
+# run table of trajectory
+
+oneStep <- function(initSt,probabilities){
+  numberStates=length(probabilities)
+  turn <- sample(c(-1,1),1)
+  newStates <- c(initSt, initSt+turn)
+  if (newStates[2] == numberStates+1) newStates[2] <- 1
+  if (newStates[2] == 0) newStates[2] <-  numberStates
+  if (probabilities[newStates[2]]>probabilities[newStates[1]]) {
+    res <- newStates[2]
+  } else {
+    p <- probabilities[newStates[2]]/probabilities[newStates[1]]
+    res <- sample(newStates, 1, prob=c(1-p,p))
+  }
+  res
+}
+
+trajectory <- rep(NA,100000)
+for (i in 1:100000){
+  init<-oneStep(init,probabilities)
+  trajectory[i]<-init
+}
+table(trajectory)
+```
+```{r}
+(table(trajectory)/sum(table(trajectory)))
+```
+
+```{r}
+probabilities<-c(.1,.3,.5,.05,.05)
+sum(probabilities)
+init <- 5
+```
+```{r}
+oneStep <- function(init,probabilities){
+  # set initial state
+  initSt <- init
+  # create turn mechanism to move 1 step
+  turn <- sample(c(-1,1),1)
+  # create vector to hold "place" of current and future :newStates
+  newStates <- c(initSt,initSt+turn)
+  
+  # take care of case where you move beyond first and last places
+  if (newStates[2]>length(probabilities)) {
+    newStates[2] <- 1
+  } else if (newStates[2]==0){
+    newStates[2] <- length(probabilities)
+  }
+  
+  # if prob future > current, move to future place
+  # else given a choice to move/stay based on ratio of probabilities
+  if (probabilities[newStates[2]]>probabilities[newStates[1]]) {
+    state <- newStates[2]
+  } else {
+    p = probabilities[newStates[2]]/probabilities[newStates[1]]
+    state <- sample(newStates,1,prob=c(1-p,p))
+  }
+  # return final state
+  state
+
+}
+
+```
+```{r}
+trajectory <-  c(rep(NA,100000))
+for (i in 1:100000) {
+  init<- oneStep(init, probabilities)
+  trajectory[i] <- init
+}
+table(trajectory)
+
+
+```
+```{r}
+# why doesnt this work when I try to assign trajectory [i] directly
+# why cant i say for (i in trajectory) vs 1:100000
+trajectory <-  c(rep(NA,100000))
+for (i in 1:100000) {
+  trajectory[i]<- oneStep(init, probabilities)
+  
+}
+table(trajectory)
+# This doesnt work because you never change init. It will repeat each iteration using the original set value for init.
+```
+
+```{r}
+# how can i use an apply on this
+trajectory <-  c(rep(NA,100000))
+trajectory <- apply(trajectory, function(z) oneStep(init, probabilities))
+# cant use apply, this is for simultaneous calculations.
+# This is a sequential algorithm
+```
+
+
+
+
+# 4 Using JAGS to Estimate Binomial Probability
+
+## 4.1 Data
+```{r}
+dataPath="C:/Users/JohntheGreat/Documents/MSCA/BayesianMethods/Week4_MonteCarlo"
+suppressWarnings(source(paste(dataPath,"DBDA2E-utilities.R",sep="/")))
+```
+```{r}
+# read in binomial sample data from Kruschke site : z15n50
+myData<-read.csv(paste(dataPath,"z15N50.csv",sep="/"))
+head(myData)
+# assign y column to vector y
+y <- myData$y
+# assign length of y:Ntotal
+(Ntotal <- length(y))
+# Create list object containing list of values and length:dataList
+(dataList <- list(y=y, Ntotal=Ntotal))
+```
+## 4.2 Preparation of the model for JAGS
+
+In order to prepare the model, first, clarify its structure for yourself.
+It is useful to do it by creating a diagram, like in [K].
+A tool for making such diagrams can be downloaded here.
+
+Start with the simplest model that looks like this.
+
+Interpretation of the diagram starts from the bottom.
+Each arrow of the diagram corresponds to a line of description code for the model.
+
+Line 1 of the model describes generation of the data according to the likelihood function: yi???dbern(??).
+Line 2 of the model describes generation of the parameter ???? from the prior distribution: ?????dbeta(??,??).
+In this case parameters of the prior distribution should be defined. For example, ??=??=1.
+The format of the model description for JAGS is a string
+```{r}
+modelString="
+model {
+  for (i in 1:Ntotal) {
+    y[i]~dbern(theta)
+  }
+  theta~dbeta(1,1)
+}
+"
+```
+Note that variables names y and Ntotal match the names of the list of the data.
+The syntax of the model description is model{description}.
+
+The next step of preparation of the model description for JAGS is saving it to a temporary text file Tempmodel.
+```{r}
+writeLines(modelString,con="Tempmodel.txt")
+```
+
+## 4.3 Initializing Markov chains
+
+Performance of MCMC will greatly depend on initial values of random walks.
+Some sources recommend dispersing starting values of different trajectories as far from each other as possible to guarantee good convergence and reliable estimation of time such convergence burn in period.
+Other sources, including [K] recommend randomly concentrating them around MLE.
+Probably, each approach may be good depending on properties of the model and complexity of the data.
+For simple enough models when convergence is not expected to be an issue, pointing trajectories to the neighborhood of MLE may improve time of simulation.
+In more complex cases it might be better to allow longer burn in period in exchange for good convergence check.
+
+One way of initializing trajectories is to define a list of lists with their values. Alternative way is creating a function that returns an init value every time it is called. JAGS will call this function every time it starts a new chain:
+```{r}
+MLE<-sum(y)/Ntotal
+init1<-MLE
+init2<-MLE*(1+.01)
+init3<-MLE*(1-.01)
+initsList<-function(){
+  thetaInit<-sample(c(init1,init2,init3),1,replace=T)
+  return(list(theta=thetaInit))
+}
+initsList()
+MLE
+```
+
+# 4.4 Sending information to JAGS
+
+Next step is getting all information to JAGS using jags.model() from library rjags.
+This function transfers the data, the model specification and the initial values to JAGS and requests JAGS to select appropriate sampling method.
+
+```{r}
+library(rjags)
+jagsModel<-jags.model(file="TempModel.txt",data=dataList,n.chains=3,n.adapt=500) #n adapt burn in perido
+```
+```{r}
+names(jagsModel)
+```
+In jags.model parameter n.chains specifies the number of chains to run (defaults to 1) and parameter n.adapt sets the number of steps JAGS can take to tune the sampling method (defaults to 1000).
+
+The object returned by jags.model contains all information that we need to communicate to JAGS about the problem in the format suitable for JAGS.
+
+## 4.5 Running MCMC on JAGS: burn in and main run
+
+Now run JAGS chains for 600 steps to complete burn in, i.e. transition to a stable distribution of Markov chain.
+
+```{r}
+update(jagsModel,n.iter=600)
+```
+After completing burn in generate MCMC trajectories representing the posterior distribution for the model.
+```{r}
+codaSamples<-coda.samples(jagsModel,variable.names=c("theta"),n.iter=3334)
+list.samplers(jagsModel)
+```
+```{r}
+head(codaSamples)
+```
+Besides the model specification object coda.samples() takes a vector of character strings corresponding to the names of parameters to record variable.names and the number of iterations to run n.iter.
+In this example there are 3 chains, to the total number of iterations will be about 10,000.
+
+Use function list.samplers to show the samplers applied to the model.
+
+## 4.6 Analyzing the results
+```{r}
+summary(codaSamples)
+```
+The "naive" standard error is the standard error of the mean, which captures simulation error of the mean rather than posterior uncertainty.
+naive SE=posterior SD / ???mean(n)
+
+The time-series standard error adjusts the "naive" standard error for autocorrelation.
+```{r}
+coda::traceplot(codaSamples)
+densplot(codaSamples)
+plot(codaSamples)
+```
+Function traceplot() and densplot() show characteristics of the chains for each parameter; plot() shows the combination of both.
+
+```{r}
+autocorr.plot(codaSamples,ask=F)
+```
+Autocorrelation function plot shows autocorrelations for different lags of the chains.
+
+One measure based on autocorrelation function, called effective sample size (ESS) shows the size of the sample one would need to run to get a completely non-autocorrelated chain.
+ESS=n/(1+2???kACF(k)).
+
+
+The infinite sum usually stops when ACF(k)<0.05
+In the best case scenario there is no autocorrelation in the chains and ESS is the same as the combined length of the simulated chains.
+If there is a nonzero autocorrelation at lags up until k then the chain samples have to be thinned to leave k observations between consecutive values. This reduces ESS.
+```{r}
+effectiveSize(codaSamples)
+```
+The ESS number is consistent with the autocorrelation function.
+
+Potential scale reduction factor or shrink factor introduced by Gelman is returned by gelman.diag().
+```{r}
+gelman.diag(codaSamples)
+gelman.plot(codaSamples)
+```
+```{r}
+lapply(codaSamples,mean)
+```
+Compare the posterior densities generated by 3 chains with theoretical posterior distribution:
+```{r}
+(l<-min(unlist(codaSamples))-.05)
+(h<-max(unlist(codaSamples))+.05)
+```
+```{r}
+histBreaks<-seq(l,h,by=.05)
+postHist<-lapply(codaSamples,hist,breaks=histBreaks)
+```
+```{r}
+plot(postHist[[1]]$mids,postHist[[1]]$density,type="l",col="black",lwd=2,ylim=c(0,6),ylab="Distribution Density",xlab="Theta")
+lines(postHist[[2]]$mids,postHist[[2]]$density,type="l",col="red",lwd=2)
+lines(postHist[[3]]$mids,postHist[[3]]$density,type="l",col="blue",lwd=2)
+lines(postHist[[3]]$mids,dbeta(postHist[[3]]$mids,1+sum(y),Ntotal-sum(y)+1),type="l",col="green",lwd=3)
+legend("topright",legend=c("Chain1","Chain2","Chain3","Theoretical"),col=c("black","red","blue","green"),lwd=2)
+```
+
+# 5. Comparison of two binomial distributions
+
+Consider a more realistic model now: two groups of patients are selected and given two treatments, one of which is a placebo.
+
+## 5.1 Data
+
+Download data, prepare them for JAGS.
+Select parameters of beta prior distribution.
+
+```{r}
+myData<-read.csv(paste(dataPath,"2GroupsStudy.csv",sep="/"))
+# assign y values to vector: y
+(y=myData$y)
+tail(myData)
+```
+```{r}
+# extract category if patient is in treatment or control group :s
+(s<-as.numeric(myData$s))
+# assign length of y: Ntotal
+(Ntotal <- length(y))
+# number of classes : Nsubj
+(Nsubj <- length(unique(s)))
+# create list of variables and totals
+(dataList <- list(y=y,s=s,Ntotal=Ntotal,Nsubj=Nsubj))
+```
+
+# 5.2 Different group proportions, common prior
+
+### 5.2.1 Model preparation
+
+```{r}
+  modelString = "
+  model {
+    for ( i in 1:Ntotal ) {
+      y[i] ~ dbern( theta[s[i]] )
+    }
+    for ( sIdx in 1:Nsubj ) {      # Different thetas from same prior
+      theta[sIdx] ~ dbeta( 2 , 2 ) # N.B.: 2,2 prior; change as appropriate.
+    }
+  }
+  " # close quote for modelString
+  writeLines( modelString , con="TEMPmodel.txt" )
+```
+### 5.2.2 Initialization and sending the model to JAGS
+
+Initialize chains randomly around MLE
+
+```{r}
+  initsList = function() {
+    thetaInit = rep(0,Nsubj)
+    for ( sIdx in 1:Nsubj ) { # for each subject
+      includeRows = ( s == sIdx ) # identify rows of this group
+      yThisSubj = y[includeRows]  # extract data of this group
+      resampledY = sample( yThisSubj , replace=TRUE ) # resample
+      thetaInit[sIdx] = sum(resampledY)/length(resampledY) 
+    }
+    thetaInit = 0.001+0.998*thetaInit # keep away from 0,1
+    return( list( theta=thetaInit ) )
+  }
+```
+check initiation:
+```{r}
+initsList()
+```
+Send the model to JAGS
+```{r}
+parameters = c( "theta")     # The parameters to be monitored
+adaptSteps = 500             # Number of steps to adapt the samplers
+burnInSteps = 500            # Number of steps to burn-in the chains
+nChains = 3                  # nChains should be 2 or more for diagnostics 
+numSavedSteps<-50000
+nIter = ceiling(numSavedSteps / nChains )
+# Create, initialize, and adapt the model:
+jagsModel = jags.model( "TEMPmodel.txt" , data=dataList , inits=initsList , 
+                          n.chains=nChains , n.adapt=adaptSteps )
+```
+### 5.2.3 Running the model
+
+run the burn in
+```{r}
+update(jagsModel, n.iter=burnInSteps)
+# Make the main run
+codaSamples=coda.samples(jagsModel, variable.names=parameters, n.iter=nIter)
+head(codaSamples)
+```
+```{r}
+list.samplers(jagsModel)
+```
+### 5.2.4 Analysis
+Analyze convergence
+```{r}
+summary(codaSamples)
+```
+```{r}
+plot(codaSamples)
+autocorr.plot(codaSamples,ask=F)
+effectiveSize(codaSamples)
+gelman.diag(codaSamples)
+gelman.plot(codaSamples)
+```
+Check estimated means
+```{r}
+matrix(unlist(lapply(codaSamples, function(z) apply(z,2,mean))), ncol=3)
+# plot posterior densities
+plot(density(codaSamples[[1]][,1]),xlim=c(0,1),ylim=c(0,3))
+lines(density(codaSamples[[1]][,2]))
+lines(density(codaSamples[[2]][,1]),col="orange")
+lines(density(codaSamples[[2]][,2]),col="orange")
+lines(density(codaSamples[[3]][,1]),col="blue")
+lines(density(codaSamples[[3]][,2]),col="blue")
+```
+Calculate HDIs for each chain
+```{r}
+(HDIofChainsHierarchi<-lapply(codaSamples,function(z) cbind(Theta1=HDIofMCMC(codaSamples[[1]][,1]),                                                   Theta2=HDIofMCMC(codaSamples[[1]][,2]))))
+```
+Find differences between theta 1 and theta2
+```{r}
+chainDiffs<-lapply(codaSamples,function(z) z[,2]-z[,1])
+```
+Find left 95% HDI boundaries for the chain differences and plot them
+```{r}
+ (leftBounds<-unlist(lapply(chainDiffs,function(z) HDIofMCMC(z,.95)[1])))
+head(chainDiffs[[1]])
+```
+```{r}
+# plot the density of the chain diffs
+  plot(density(chainDiffs[[1]]),xlim=c(-.5,1),ylim=c(0,3),col="black")
+  lines(density(chainDiffs[[2]]),col="red")
+  lines(density(chainDiffs[[3]]),col="blue")
+  abline(v=leftBounds,col=c("black","orange","blue"))
+```
+For the given sample and prior distribution probabilities of success do not seem to be distinguishable by 95% HDI for all 3 chains.
+
+How should prior distribution change in order to make the probabilities for the two groups distinguishable?
+
+Repeat calculations with different priors.
+
+## 5.3 Separate group models
+
+Create separate models for two groups.
+Each of the group models has this diagram.
+
+Estimate group proportions.
+
+
+
+
+
+
+
+
