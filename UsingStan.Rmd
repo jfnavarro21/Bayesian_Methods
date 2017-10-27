@@ -1,0 +1,33 @@
+---
+title: "BA week 5 Workshop"
+author: "John Navarro"
+date: "October 25, 2017"
+output: pdf_document
+---
+
+```{r}
+library(rjags)
+```
+
+#3 Application of stan
+```{r}
+suppressWarnings(library(rstan))
+```
+
+```{r}
+modelString = "
+  data {
+    int<lower=0> N ;
+    int y[N] ; //length-N vector of integers 
+  }
+  parameters {
+    real<lower=0,upper=1> theta ;
+  }
+  model {
+    theta ~ beta(1,1) ;
+    y ~ bernoulli(theta) ; 
+  }
+"
+stanDso <- stan_model( model_code=modelString ) 
+```
+
