@@ -1,0 +1,963 @@
+---
+title: "BA Week 8 Workshop 1"
+author: "John Navarro"
+date: "November 15, 2017"
+output: pdf_document
+---
+
+# 1 Multiple Regression
+
+## 1.1 Example 1: Two significant predictors
+
+
+```{r}
+suppressWarnings(library(rstan))
+dataPath="C:/Users/JohntheGreat/Documents/MSCA/BayesianMethods/Week8_MultiReg"
+```
+
+```{r}
+# generate data
+set.seed(3526)
+Ntotal <- 500
+x <- cbind(rnorm(Ntotal, mean = 20, sd = 4), 
+           rnorm(Ntotal, mean=10, sd = 6)
+           )
+Nx <- ncol(x)
+y <- 4 + 1.1*x[,1] + 3*x[,2] + rnorm(Ntotal, mean = 0, sd = 1)
+dataListRegression<-list(Ntotal=Ntotal,
+                  y=y,
+                  x=as.matrix(x),
+                  Nx=Nx)
+```
+
+```{r}
+modelString="
+data {
+    int<lower=1> Ntotal;
+    int<lower=1> Nx;
+    vector[Ntotal] y;
+    matrix[Ntotal, Nx] x;
+}
+
+transformed data {
+  real meanY;
+  real sdY;
+  vector[Ntotal] zy;
+  vector[Nx] meanX;
+  vector[Nx] sdX;
+  matrix[Ntotal, Nx] zx;
+
+  meanY=mean(y);
+  sdY=sd(y);
+  zy = (y-meanY)/ sdY;
+  for ( j in 1:Nx) {
+    meanX[j] = mean(x[,j]);
+    sdX[j] = sd(x[,j]);
+        for ( i in 1:Ntotal ) {
+            zx[i,j] = ( x[i,j] - meanX[j] ) / sdX[j];
+        }
+
+  }
+}
+
+parameters {
+  real zbeta0;
+  vector[Nx] zbeta;
+  real<lower=0> nu;
+  real<lower=0> zsigma;
+  
+}
+
+transformed parameters{
+  vector[Ntotal] zy_hat;
+  zy_hat = zbeta0 + zx * zbeta;
+}
+
+model {
+  zbeta0~normal(0,2);
+  zbeta~ normal(0,2);
+  nu~ exponential(1/30);
+  zsigma~ uniform(1.0E-5 , 1.0E+1);
+  zy ~ student_t(1+nu, zy_hat, zsigma);
+
+generated quantities {
+  real beta0;
+  vector[Nx] beta;
+  real sigma;
+  beta0 = zbeta0*sdY  + meanY - sdY * sum( zbeta .* meanX ./ sdX );
+  beta = sdY * ( zbeta ./ sdX );
+  sigma = zsigma * sdY;
+}
+
+"
+```
+
+```{r}
+modelString<-"
+data {
+    int<lower=1> Ntotal;
+    int<lower=1> Nx;
+    vector[Ntotal] y;
+    matrix[Ntotal, Nx] x;
+}
+transformed data {
+    real meanY;
+    real sdY;
+    vector[Ntotal] zy; // normalized
+    vector[Nx] meanX;
+    vector[Nx] sdX;
+    matrix[Ntotal, Nx] zx; // normalized
+    
+    meanY = mean(y);
+    sdY = sd(y);
+    zy = (y - meanY) / sdY;
+    for ( j in 1:Nx ) {
+        meanX[j] = mean(x[,j]);
+        sdX[j] = sd(x[,j]);
+        for ( i in 1:Ntotal ) {
+            zx[i,j] = ( x[i,j] - meanX[j] ) / sdX[j];
+        }
+    }
+}
+parameters {
+    real zbeta0;
+    vector[Nx] zbeta;
+    real<lower=0> nu;
+    real<lower=0> zsigma;
+}
+transformed parameters{
+    vector[Ntotal] zy_hat;
+    zy_hat = zbeta0 + zx * zbeta;
+}
+model {
+    zbeta0 ~ normal(0, 2);
+    zbeta  ~ normal(0, 2);
+    nu ~ exponential(1/30.0);
+    zsigma ~ uniform(1.0E-5 , 1.0E+1);
+    zy ~ student_t(1+nu, zy_hat, zsigma);
+}
+generated quantities { 
+    // Transform to original scale:
+    real beta0; 
+    vector[Nx] beta;
+    real sigma;
+    // .* and ./ are element-wise product and divide
+    beta0 = zbeta0*sdY  + meanY - sdY * sum( zbeta .* meanX ./ sdX );
+    beta = sdY * ( zbeta ./ sdX );
+    sigma = zsigma * sdY;
+} "
+```
+
+use STAN to create the DSO - dynamic shared object
+```{r}
+RobustMultipleRegressionDso<-stan_model( model_code=modelString )
+#save(RobustMultipleRegressionDso,file=paste(dataPath,"DSORobustMultRegr.Rds",sep="/"))
+```
+Can save and load
+```{r}
+#load(file=paste(dataPath, "DSORobustMultipleRegr.Rds", sep="/"))
+```
+
+Run the chains to fit the model
+```{r}
+fit1 <- sampling(RobustMultipleRegressionDso,
+                 data=dataListRegression,
+                 pars=c('beta0','beta','nu','sigma'),
+                 iter=5000, chains=2, cores=2)
+# display autocorrelation plots for chains # sigma and beta 0, beta 2 some lags
+stan_ac(fit1)
+# display trace plots for chains
+stan_trace(fit1)
+# return summary of the model, removing quantile columns and se mean etc
+summary(fit1)$summary[,c(1,3,4,8,9)]
+# display the pairs plots of the 3 beta coefficients
+# no problems/divergences. beta0, beta1 correlation. beta0/beta2 correlation not as strong
+# increased slope, decreased intercept
+pairs(fit1, pars=c("beta0", "beta[1]", "beta[2]"))
+# Plot the mean and CI of nu
+# large enough that we didn't need t distribution
+plot(fit1, pars="nu")
+# plot the mean and CI of sigma #1
+plot(fit1, pars="sigma")
+# plot the mean and CI of beta0 #4
+plot(fit1, pars="beta0")
+# plot the mean and CI of beta1 # 1.1
+plot(fit1, pars="beta[1]")
+# plot the mean and CI of beta2 # 3
+plot(fit1, pars="beta[2]")
+```
+Analyze fitted model using shinystan
+```{r}
+library(shinystan)
+#launch_shinystan(fit1)
+```
+Conclusions:
+1. Normality parameter (nu) is large enough to consider normal distribution. mean 49.78, 2.5% HDI bound 12.58, which is as expected since we simulated a normal model
+2. Parameters Beta0 and Beta[1] are negatively correlated, which is as expected
+3. Parameters Beta0 and Beta[2] are also negatively correlated, but the correlation is not as strong
+4. All parameter estimates are close to what we simulated
+
+## 1.2  Example 2: Insignificant predictors
+
+```{r}
+Regression.Data<-as.matrix(read.csv(file=paste(dataPath,"DataForRegressionANOVA.csv",sep="/"),header=TRUE,sep=","))
+head(Regression.Data)
+```
+Prepare the data for Stan
+```{r}
+Ntotal <- nrow(Regression.Data)
+x <- Regression.Data[,2:3]
+head(x)
+```
+
+Create data list for insignificant 
+```{r}
+Nx <- ncol(x)
+y <-Regression.Data[,1]
+dataListInsig<-list(Ntotal=Ntotal,
+                  y=y,
+                  x=as.matrix(x),
+                  Nx=Nx)
+```
+Run MCMC using the same DSO
+```{r}
+fit2<-sampling(RobustMultipleRegressionDso,
+               data=dataListInsig,
+               pars=c('beta0', 'beta', 'nu', 'sigma'),
+               iter=5000, chains = 2, cores = 2)
+```
+
+```{r}
+#launch_shinystan(fit2)
+```
+
+Analyze the results
+```{r}
+summary(fit2)$summary[,c(1,3,4,8,9)]
+# pairs plots of the beta coefficients
+pairs(fit2,pars=c("beta0","beta[1]","beta[2]"))
+plot(fit2, pars="nu")
+# plot the mean and CI of sigma 
+plot(fit2, pars="sigma")
+# plot the mean and CI of beta0 
+plot(fit2, pars="beta0")
+# plot the mean and CI of beta1 
+plot(fit2, pars="beta[1]")
+# plot the mean and CI of beta2
+# This we see that the HDI contains zero, its mean is close to zero
+plot(fit2, pars="beta[2]")
+```
+We conclude that parameter Beta2 is not significant
+However there is no strong correlation or reduncancy between the predictors.
+Comparie with the output of linear model
+```{r}
+pairs(Regression.Data)
+```
+```{r}
+summary(lm(Output~., data=as.data.frame(Regression.Data)))
+```
+Correlations in Bayesian terms is compensating for the correlation in the data. In the Bayesian pairs plots, we see negative correlation betweeen Beta0 and Beta 1, in the data we see positive correlation between Ouput and Input1
+
+## 1.3 Example 3: Correlated predictors
+
+###1.3.1 Strong correlation
+
+Create a dataset with strongly correlated predictors
+```{r}
+set.seed(83945)
+Ntotal <- 500
+# create vector of x1 values
+x1 <- rnorm(Ntotal, mean=20, sd=4)
+# create vector of x2 values
+x2 <- 1-1.5*x1+rnorm(Ntotal, mean=0, sd=.1)
+# combine x1 and x2
+x <- cbind(x1, x2)
+plot(x)
+
+```
+```{r}
+# number of variables
+Nx <- ncol(x)
+# Create y values
+y <- 4+ .2*x[,1] + 3*x[,2] + rnorm(Ntotal, mean=0, sd=1)
+# plot x1 vs y
+plot(x[,1],y)
+plot(x[,2],y)
+```
+
+```{r}
+fitlm <- lm(y~x[,1]+x[,2])
+summary(fitlm)
+
+```
+when linear model sees correlated predictors, it puts all the weight on one of them.
+disregards the otherone, so one is dumped and one is reinforced
+
+```{r}
+# drop one 
+drop1(fitlm)
+```
+
+```{r}
+dataListShrink2<-list(Ntotal=Ntotal,
+                  y=y,
+                  x=as.matrix(x),
+                  Nx=Nx)
+
+cbind(actual=c(4,.2,3),estimated=fitlm$coefficients)
+```
+Run the chains and analyze the results
+```{r}
+tStart<-proc.time()
+fit3<-sampling(RobustMultipleRegressionDso,
+               data=dataListShrink2,
+               pars=c('beta0', 'beta', 'nu', 'sigma'),
+               iter=5000, chains = 2, cores = 2)
+tEnd<-proc.time()
+tEnd-tStart
+```
+Why does it take so long to run MCMC?
+
+
+```{r}
+#launch_shinystan(fit3)
+```
+
+
+```{r}
+stan_dens(fit3)
+```
+
+```{r}
+stan_ac(fit3, separate_chains = T)
+```
+AC becomes long memory, related to slower convergence
+```{r}
+summary(fit3)$summary[,c(1,3,4,8,9)]
+
+```
+beta 1 insig, beta2 sig
+```{r}
+pairs(fit3,pars=c("beta0","beta[1]","beta[2]"))
+```
+correlation of beta1 and beta2 is what took so long to converge. Exploring the long shape. Alot of proposals got rejected. 
+Stan can better find the shape vs jags, moves in the shape of the gradient. equal height ridges, random steps are between the heights. Stan can move along prolonged structures more efficiently
+
+```{r}
+plot(fit3,pars="nu")
+plot(fit3,pars="sigma")
+plot(fit3,pars="beta0")
+plot(fit3,pars="beta[1]")
+plot(fit3,pars="beta[2]")
+```
+General signs of collinear predictors:
+
+High correlation between slopes (compensating sign)
+Wide posterior distributions for slopes
+Increased autocorrelation for slopes
+
+```{r}
+pairs(cbind(y,x1,x2))
+```
+
+```{r}
+cbind(actual=c(4,.2,3),estimatedLm=fitlm$coefficients,estimatedBayes=summary(fit3)$summary[1:3,1])
+```
+
+# 1.3.2 Collinearity
+
+In the case when predictors have strong collinearity, the linear model may stop working.
+Simulate the same model as in the previous section, but make predictors collinear
+```{r}
+set.seed(83945)
+Ntotal <- 500
+x1 <- rnorm(Ntotal, mean = 20, sd = 4)
+x2<-1-1.5*x1+rnorm(Ntotal, mean=0, sd = .000001)
+x<-cbind(x1,x2)           
+plot(x)
+```
+```{r}
+Nx <- ncol(x)
+y <- 4 + .2*x[,1] + 3*x[,2]+rnorm(Ntotal, mean = 0, sd = 1)
+plot(x[,1],y)
+plot(x[,2],y)
+```
+Create data list and run linear model
+```{r}
+dataListShrink2c<-list(Ntotal=Ntotal,
+                  y=y,
+                  x=as.matrix(x),
+                  Nx=Nx)
+
+```
+
+```{r}
+(lmFit<-lm(y~x1+x2))
+summary(lmFit)
+drop1(lmFit)
+```
+Linear model stops working
+
+Simulate Markov Chains
+```{r}
+tStart<-proc.time()
+fit3c<-sampling(RobustMultipleRegressionDso,
+                data=dataListShrink2c,
+                pars=c('beta0', 'beta', 'nu', 'sigma'),
+                iter=5000, chains = 1, cores = 2)
+tEnd<-proc.time()
+tEnd-tStart
+```
+
+With collinear predictors, model takes much longer to simulate
+```{r}
+stan_dens(fit3c)
+stan_ac(fit3c, separate_chains = T)
+summary(fit3c)$summary[,c(1,3,4,8,9)]
+pairs(fit3c,pars=c("beta0","beta[1]","beta[2]"))
+plot(fit3c,pars="nu")
+plot(fit3c,pars="sigma")
+plot(fit3c,pars="beta0")
+plot(fit3c,pars="beta[1]")
+plot(fit3c,pars="beta[2]")
+
+```
+Markov chains may go over limit on tree depths (yellow dots on pairs graph).
+But Bayesian method still works. It shows that one of the slopes is not significantly different from zero. 
+
+Both betas are so highly colinear, we cant estimate away from zero
+
+# 2 Shrinkage of regression coefficients
+
+When there are many candidate predictors in the model it may be useful to "motivate" them to become closer to zero if they are not very strong.
+One way to do it is to:
+
+Set a prior distribution for slopes as Student instead of normal;
+Make mean of that distribution equal to zero;
+Make normality parameter ?? small and dispersion parameter ?? also small: like in the following diagram.
+Small ?? forces slopes to shrink towards zero mean. At the same time small ?? makes the tails fat enough to allow some strong slopes to be outliers.
+
+Parameter ?? of the prior for regression coefficients ??j can be either fixed, or given its own prior and estimated.
+
+In the former case all coefficients will be forced to have the same regularizator, if it is random and estimated from the same data then there is mutual influence between ???? and regression coefficients: if many of them are close to zero then ???? is going to be smaller, which in turn pushes coefficients even closer to zero.
+
+What does this approach remind you of in other courses?
+
+
+
+
+## 2.1 Two significant predictors
+
+```{r}
+modelString<-"
+data {
+    int<lower=1> Ntotal;
+    int<lower=1> Nx;
+    vector[Ntotal] y;
+    matrix[Ntotal, Nx] x;
+}
+transformed data {
+    real meanY;
+    real sdY;
+    vector[Ntotal] zy; // normalized
+    vector[Nx] meanX;
+    vector[Nx] sdX;
+    matrix[Ntotal, Nx] zx; // normalized
+    
+    meanY = mean(y);
+    sdY = sd(y);
+    zy = (y - meanY) / sdY;
+    for ( j in 1:Nx ) {
+        meanX[j] = mean(x[,j]);
+        sdX[j] = sd(x[,j]);
+        for ( i in 1:Ntotal ) {
+            zx[i,j] = ( x[i,j] - meanX[j] ) / sdX[j];
+        }
+    }
+}
+parameters {
+    real zbeta0;
+    real<lower=0> sigmaBeta;
+    vector[Nx] zbeta;
+    real<lower=0> nu;
+    real<lower=0> zsigma;
+}
+transformed parameters{
+    vector[Ntotal] zy_hat;
+    zy_hat = zbeta0 + zx * zbeta;
+}
+model {
+    zbeta0 ~ normal(0, 2);
+    sigmaBeta ~ gamma(2.3,1.3); // mode 1, sd 0.5
+    zbeta  ~ student_t(1.0/30.0, 0, sigmaBeta);
+    nu ~ exponential(1/30.0);
+    zsigma ~ uniform(1.0E-5 , 1.0E+1);
+    zy ~ student_t(1+nu, zy_hat, zsigma);
+}
+generated quantities { 
+    // Transform to original scale:
+    real beta0; 
+    vector[Nx] beta;
+    real sigma;
+    // .* and ./ are element-wise product and divide
+    beta0 = zbeta0*sdY  + meanY - sdY * sum( zbeta .* meanX ./ sdX );
+    beta = sdY * ( zbeta ./ sdX );
+    sigma = zsigma * sdY;
+} "
+```
+
+Gamma distribution prior for sigmaBeta is selected to have relatively low mode 1.
+```{r}
+xGamma<-seq(from=.00001,to=10,by=.001)
+plot(xGamma,dgamma(xGamma,shape=2.3,rate=1.3),type="l")
+xGamma[which.max(dgamma(xGamma,shape=2.3,rate=1.3))]
+```
+Create DSO
+```{r}
+RegressionShrinkDso<-stan_model( model_code=modelString )
+#save(RegressionShrinkDso,file=paste(dataPath,"DSOShrunkMultRegr.Rds",sep="/"))
+#load(file=paste(dataPath,"DSOShrunkMultRegr.Rds",sep="/"))
+```
+Generate Markov chains in case of 2 significant predictors
+```{r}
+tStart<-proc.time()
+# fit model
+fit4 <- sampling (RegressionShrinkDso, 
+             data=dataListRegression, 
+             pars=c('beta0', 'beta', 'nu', 'sigma', 'sigmaBeta'),
+             iter=5000, chains = 2, cores = 2
+)
+tEnd<-proc.time()
+tEnd-tStart
+```
+
+Analyze model
+```{r}
+stan_dens(fit4)
+stan_ac(fit4, separate_chains = T)
+summary(fit4)$summary[,c(1,3,4,8,9)]
+pairs(fit4,pars=c("beta0","beta[1]","beta[2]"))
+plot(fit4,pars="nu")
+plot(fit4,pars="sigma")
+plot(fit4,pars="beta0")
+plot(fit4,pars="beta[1]")
+plot(fit4,pars="beta[2]")
+
+```
+
+### 2.1.1 Analysis and compaison
+
+Compare posterior mean values and 95% HDI with fit1 (same model, no shrinkage)
+```{r}
+cbind(summary(fit1)$summary[1:3, c(1,4,8)], summary(fit4)$summary[1:3,c(1,4,8)])
+```
+Mean values of both fits seem very similar.
+Check widths of the HDI for coefficients.
+```{r}
+cbind(summary(fit1)$summary[1:3,c(8)]-summary(fit1)$summary[1:3,c(4)],
+      summary(fit4)$summary[1:3,c(8)]-summary(fit4)$summary[1:3,c(4)])
+```
+Shrinkage can be noticed after third digit of all coefficients.
+In this example both slopes are significant and they practically did not shrink.
+
+For comparison fit linear model, ridge and lasso regressions to the same data.
+
+Linear model.
+```{r}
+lmFit<-lm(dataListRegression$y~dataListRegression$x[,1]+dataListRegression$x[,2])
+suppressWarnings(library(glmnet))
+```
+Ridge
+```{r}
+set.seed(15)
+cv.outRidge=cv.glmnet(x=dataListRegression$x, y=dataListRegression$y, alpha=0)
+plot(cv.outRidge)
+# select best lambda
+(bestlam <- cv.outRidge$lambda.min)
+# fit ridge model
+ridgeFit <- glmnet(x=dataListRegression$x, y=dataListRegression$y, alpha=0, lambda=bestlam, standardize=F)
+ridge.coef <- predict(ridgeFit, type="coefficients", s=bestlam)
+```
+Lasso
+```{r}
+set.seed(15)
+cv.outLasso=cv.glmnet(x=dataListRegression$x, y=dataListRegression$y, alpha=1)
+plot(cv.outLasso)
+# select best lambda
+(bestlamL <- cv.outLasso$lambda.min)
+# fit lasso regression
+lassoFit <- glmnet(x=dataListRegression$x, y=dataListRegression$y, alpha=1, lambda=bestlamL, standardize = F)
+lasso.coef <- predict(lassoFit, type="coefficients", s=bestlamL)
+```
+compare coefficients from all models
+```{r}
+comparison<-cbind(summary(fit1)$summary[1:3,c(1,4,8)],
+      summary(fit4)$summary[1:3,c(1,4,8)],
+      Ridge=ridge.coef,
+      Lasso=lasso.coef,
+      Linear=lmFit$coefficients)
+colnames(comparison)<-c(paste("NoShrinkage",c("mean","2.5%","97.5%"),sep="_"),
+                        paste("Shrinkage",c("mean","2.5%","97.5%"),sep="_"),
+                        "Ridge","Lasso","Linear")
+
+# transpose to view better
+t(comparison)
+```
+All models show practically no shrinkage relative to linear model.
+Both Ridge and Lasso regression have too high estimates of intercept.
+
+## 2.2 insignificant predictor
+
+Shrink estimatesfrom data dataList Insig
+```{r}
+tStart<-proc.time()
+# fit model
+fit5 <- sampling (RegressionShrinkDso, 
+             data=dataListInsig, 
+             pars=c('beta0', 'beta', 'nu', 'sigma', 'sigmaBeta'),
+             iter=5000, chains = 2, cores = 2
+)
+tEnd<-proc.time()
+tEnd-tStart
+```
+```{r}
+stan_dens(fit5)
+stan_ac(fit5, separate_chains = T)
+summary(fit5)$summary[,c(1,3,4,8,9)]
+pairs(fit5,pars=c("beta0","beta[1]","beta[2]"))
+plot(fit5,pars="nu")
+plot(fit5,pars="sigma")
+plot(fit5,pars="beta0")
+plot(fit5,pars="beta[1]")
+plot(fit5,pars="beta[2]")
+```
+This time posterior density of beta[2] is concentrated at zero.
+
+### 2.2.1 Analysis and comparison
+
+Compare mean levels and HDI widths for fits with and without shrinkage
+
+```{r}
+cbind(summary(fit2)$summary[1:3,c(1,4,8)],summary(fit5)$summary[1:3,c(1,4,8)])
+
+```
+```{r}
+cbind(summary(fit2)$summary[1:3,c(8)]-summary(fit2)$summary[1:3,c(4)],
+      summary(fit5)$summary[1:3,c(8)]-summary(fit5)$summary[1:3,c(4)])
+
+
+```
+Parameters shrunk a little more this time,
+Again, fit linear model, ridge and lasso regressions to the same data.
+
+Linear Model
+```{r}
+lmFit <- lm(dataListInsig$y~dataListInsig$x[,1]+dataListInsig$x[,2])
+```
+Ridge regression
+```{r}
+set.seed(15)
+cv.outRidge=cv.glmnet(x=dataListInsig$x, y=dataListInsig$y, alpha=0)
+plot(cv.outRidge)
+bestlam <- cv.outRidge$lambda.min
+ridgeFit <- glmnet(x=dataListInsig$x, y=dataListInsig$y, alpha=1, lambda = bestlam, standardize = F)
+ridge.coef <- predict(ridgeFit, type="coefficients", s=bestlam)
+```
+
+Lasso regression
+```{r}
+set.seed(15)
+cv.outLasso=cv.glmnet(x=dataListInsig$x, y=dataListInsig$y, alpha=1)
+plot(cv.outLasso)
+```
+```{r}
+# extract the best lambda
+bestlam <- cv.outLasso$lambda.min
+lassoFit <- glmnet(x=dataListInsig$x, y=dataListInsig$y, alpha=1, lambda = bestlam, standardize = F)
+lasso.coef <- predict(lassoFit,type="coefficients", s=bestlam)
+```
+
+Compare coefficients from all 3 models
+```{r}
+comparison<-cbind(summary(fit2)$summary[1:3,c(1)],
+      summary(fit5)$summary[1:3,c(1)],
+      Ridge=ridge.coef,
+      Lasso=lasso.coef,
+      Linear=lmFit$coefficients)
+colnames(comparison)<-c("NoShrinkage","Shrinkage","Ridge","Lasso","Linear")
+t(comparison)
+```
+All 3  models correctly exclude second coefficient.
+Ridge shrunk both slopes more than other model.
+There is again tendency for Ridge and Lasso to overestimate intercept.
+
+## 2.3 Correlated predictors
+
+Shrink coefficients estimated from dataListShrink2.
+
+Bayesian shrinkage model - fit6
+
+```{r}
+tStart<-proc.time()
+# fit model
+fit6 <- sampling (RegressionShrinkDso, 
+             data=dataListShrink2, 
+             pars=c('beta0', 'beta', 'nu', 'sigma', 'sigmaBeta'),
+             iter=5000, chains = 2, cores = 2
+)
+tEnd<-proc.time()
+tEnd-tStart
+```
+
+Analyze the fitted model
+Check densities pairs and individual plots of parameters
+```{r}
+stan_dens(fit6)
+stan_ac(fit6, separate_chains = T)
+summary(fit6)$summary[,c(1,3,4,8,9)]
+pairs(fit6, pars=c("beta0","beta[1]","beta[2]"))
+plot(fit6,pars="nu")
+plot(fit6,pars="sigma")
+plot(fit6,pars="beta0")
+plot(fit6,pars="beta[1]")
+plot(fit6,pars="beta[2]")
+
+```
+
+## 2.3.1 Analysis and comparison
+
+Show mean values and HDI
+```{r}
+cbind(summary(fit3)$summary[1:3,c(1,4,8)],summary(fit6)$summary[1:3,c(1,4,8)])
+cbind(summary(fit3)$summary[1:3,c(8)]-summary(fit3)$summary[1:3,c(4)],
+      summary(fit6)$summary[1:3,c(8)]-summary(fit6)$summary[1:3,c(4)])
+```
+In this example ??1 shrunk more significantly and is not different from zero.
+At the same time ??2 has become more different from zero.
+Regularization reinforced one of the two correlated predictors while dumping the other,
+
+Again, fit linear model, ridge and lasso regressions to the same data.
+
+Linear Model
+```{r}
+lmFit<-lm(dataListShrink2$y~dataListShrink2$x[,1]+dataListShrink2$x[,2])
+```
+
+Ridge
+```{r}
+set.seed(15)
+cv.outRidge=cv.glmnet(x=dataListShrink2$x,y=dataListShrink2$y,alpha=0)
+plot(cv.outRidge)
+(bestlam <-cv.outRidge$lambda.min)
+ridgeFit<-glmnet(x=dataListShrink2$x,y=dataListShrink2$y,
+                 alpha=0,lambda=bestlam,standardize = F)
+ridge.coef<-predict(ridgeFit,type="coefficients",s=bestlam)
+```
+Lasso
+```{r}
+set.seed(15)
+cv.outLasso=cv.glmnet(x=dataListShrink2$x,y=dataListShrink2$y,alpha=1)
+plot(cv.outLasso)
+(bestlam <-cv.outLasso$lambda.min)
+lassoFit<-glmnet(x=dataListShrink2$x,y=dataListShrink2$y,
+                 alpha=1,lambda=bestlam,standardize = F)
+lasso.coef<-predict(lassoFit,type="coefficients",s=bestlam)
+```
+Compare all coefficients
+```{r}
+comparison<-cbind(summary(fit3)$summary[1:3,c(1)],
+      summary(fit6)$summary[1:3,c(1)],
+      Ridge=ridge.coef,
+      Lasso=lasso.coef,
+      Linear=lmFit$coefficients)
+colnames(comparison)<-c("NoShrinkage","Shrinkage","Ridge","Lasso","Linear")
+t(comparison)
+```
+All models correctly exclude first slope.
+Lasso does it decisively, making slope ??1??1 exactly equal to zero.
+Lasso also estimated intercept and ??2??2 more accurately than other models: recall that for this data set ??0=4, ??2=3??0=4, ??2=3.
+
+# 3. Is school financing necessary?
+
+Analysis of SAT scores, example from [K], section 18.3.
+
+These data are analyzed in the article by Deborah Lynn Guber.
+The variables observed are the mean SAT score by state, amount of money spent by student, percent of students who take SAT and other variables.
+
+Read the data from file "Guber1999data.csv" available at [K].
+
+```{r}
+myData = read.csv(paste(dataPath,"Guber1999data.csv",sep="/"))  # according to section 18.3 @ Kruschke
+head(myData)
+```
+```{r}
+pairs(myData[,-(6:7)])
+```
+```{r}
+plot(myData$Spend,myData$SATT)
+```
+```{r}
+summary(lm(myData$SATT~myData$Spend))$coeff
+```
+The plots show that mean SAT score is negatively correlated with amount of money states spend per student.
+These results were used in hot debates about spending money on education to support argument in favor of reducing public support for schools.
+
+Prepare the data.
+
+Use the 2 predictors from the file, plus add 12 randomly generated nuisance predictors.
+```{r}
+Ntotal <- nrow(myData)
+y <- myData$SATT
+x <- cbind(myData$Spend, myData$PrcntTake)
+colnames(x) <- c("Spend","PrcntTake");
+dataList2Predict<-list(Ntotal=Ntotal,y=y,x=x,Nx=ncol(x))
+# generate 12 spurious predictors:
+set.seed(47405)
+NxRand <- 12
+for (xIdx in 1:NxRand) {
+    xRand = rnorm(Ntotal)
+    x = cbind(x, xRand )
+    colnames(x)[ncol(x)] = paste0("xRand", xIdx)
+}
+dataListExtraPredict<- list(Ntotal=Ntotal,y=y,x=x,Nx=ncol(x))
+```
+
+## 3.1 No shrinkage
+
+Use the same model as in the example of the first section: RobustMultipleRegressionDso.
+
+First, run the model with 2 predictors.
+
+```{r}
+fit_noshrink2Pred <- sampling (RobustMultipleRegressionDso, 
+                          data=dataList2Predict, 
+                          pars=c('beta0', 'beta', 'nu', 'sigma'),
+                          iter=5000, chains = 2, cores = 2)
+summary(fit_noshrink2Pred)$summary[,c(1,4,8)]
+```
+It is clear that the slope of "Spend" is significantly positive and slope of "PrcntTake" is significantly negative.
+
+This shows that the negative correlation between SAT scores and the money spent as seen from their scatterplot is illusory: fewer students from underfunded schools take SAT, but these are only students who apply for colleges; students who potentially would receive low SAT scores do not apply to college and do not take the test.
+
+Run MCMC for the model with additional nuisance predictors.
+
+```{r}
+fit_noshrinkExtra <- sampling (RobustMultipleRegressionDso, 
+                          data=dataListExtraPredict, 
+                          pars=c('beta0', 'beta', 'nu', 'sigma'),
+                          iter=5000, chains = 2, cores = 2)
+```
+
+Here are the results of MCMC.
+```{r}
+stan_ac(fit_noshrinkExtra, separate_chains = T)
+pairs(fit_noshrinkExtra,pars=c("beta0","beta[1]","beta[2]"))
+plot(fit_noshrinkExtra,pars=c('beta'))
+stan_dens(fit_noshrinkExtra,pars=c("beta0","beta"))
+summary(fit_noshrinkExtra)$summary[,c(1,4,8)]
+colnames(x)
+
+```
+
+## 3.2 Shrinkage
+
+Analyze the same data with the model encouraging shrinkage of parameters.
+
+First, fit the model without nuisance parameters.
+
+```{r}
+fit_shrink <- sampling(RegressionShrinkDso, 
+                        data=dataList2Predict, 
+                        pars=c('beta0', 'beta', 'nu', 'sigma', 'sigmaBeta'),
+                        iter=5000, chains = 2, cores = 2)
+```
+
+Analyze the chains
+```{r}
+stan_ac(fit_shrink, separate_chains = T)
+pairs(fit_shrink,pars=c("beta0","beta","nu","sigma","sigmaBeta"))
+plot(fit_shrink,pars=c('beta'))
+stan_dens(fit_shrink,pars=c('beta'))
+cbind(summary(fit_noshrink2Pred)$summary[1:4,c(1,4,8)],summary(fit_shrink)$summary[1:4,c(1,4,8)])
+
+```
+First variable shrunk closer to zero: mean value is smaller and left end of the 95%-HDI is closer to zero.
+
+Now fit the model with additional parameters.
+
+```{r}
+fit_shrinkExtra <- sampling (RegressionShrinkDso, 
+                        data=dataListExtraPredict, 
+                        pars=c('beta0', 'beta', 'nu', 'sigma', 'sigmaBeta'),
+                        iter=5000, chains = 2, cores = 2)
+```
+Analyze fit with additional nuisance parameters
+```{r}
+stan_ac(fit_shrinkExtra, separate_chains = T)
+pairs(fit_shrinkExtra,pars=c("beta0","beta[1]","beta[2]","beta[3]","beta[4]","beta[11]","beta[12]"))
+pairs(fit_shrinkExtra,pars=c("nu","sigma","sigmaBeta"))
+plot(fit_shrinkExtra,pars=c('beta'))
+stan_dens(fit_shrinkExtra,pars=c('beta'))
+summary(fit_shrinkExtra)$summary[,c(1:4,8)]
+```
+Parameter beta[12] has shrunk to zero based on 95%-HDI as a result of regularized model.
+This helped removing all nuisance parameters.
+But shrinkage also removed parameter beta[1] of variable "Spend".
+
+## 3.3 Linear model
+
+compare with linear model
+without nuisance predictors
+```{r}
+lmSAT<-lm(y~x[,1]+x[,2])
+summary(lmSAT)
+# confidence interval of coefficients
+confint(lmSAT)
+```
+
+Now with nuisance predictors
+```{r}
+lmSATAll<-lm(y~.,data=as.data.frame(cbind(y,x)))
+summary(lmSATAll)
+confint(lmSATAll)[2:3,2]-confint(lmSATAll)[2:3,1]
+confint(lmSAT)[2:3,2]-confint(lmSAT)[2:3,1]
+```
+
+## 3.4 Ridge and lasso
+
+```{r}
+set.seed(15)
+cv.outRidge=cv.glmnet(x=dataListExtraPredict$x,y=dataListExtraPredict$y,alpha=0)
+plot(cv.outRidge)
+(bestlam <-cv.outRidge$lambda.min)
+ridgeFit<-glmnet(x=dataListExtraPredict$x,y=dataListExtraPredict$y,
+                 alpha=0,lambda=bestlam,standardize = F)
+ridge.coef<-predict(ridgeFit,type="coefficients",s=bestlam)
+# lasso
+set.seed(15)
+cv.outLasso=cv.glmnet(x=dataListExtraPredict$x,y=dataListExtraPredict$y,alpha=1)
+plot(cv.outLasso)
+(bestlam <-cv.outLasso$lambda.min)
+lassoFit<-glmnet(x=dataListExtraPredict$x,y=dataListExtraPredict$y,
+                 alpha=1,lambda=bestlam,standardize = F)
+lasso.coef<-predict(lassoFit,type="coefficients",s=bestlam)
+# comparison of coefficients
+comparison<-round(cbind(summary(lmSATAll)$coefficients[,c(1,4)],
+                        summary(fit_noshrinkExtra)$summary[1:15,c(1,4,8)],
+                        summary(fit_shrinkExtra)$summary[1:15,c(1,4,8)],
+                        ridge.coef, lasso.coef),3)
+comparison<-as.matrix(comparison)
+colnames(comparison)<-c("LM","LM-Pv","NoShrink","NoShrink-L","NoShrink-H",
+                        "Shrink","Shrink-L","Shrink-H","Ridge","Lasso")
+comparison
+
+
+
+```
+Note that there is no way to extract from ridge and lasso regressions any measure for comparison with zero, like confidence intervals.
+
+Linear model keeps both Spend and PrcntTake and removes with 5% level all nuisance coefficients except  xRand10.
+Bayesian model without shrinkage does the same.
+Bayesian model with shrinkage shrinks to zero all artificial predictors, but it also removes Spend.
+Ridge in general is consistent with linear model, but it is not clear if it shrinks any parameters to zero or not.
+Lasso fails to shrink to zero several artificial parameters.
